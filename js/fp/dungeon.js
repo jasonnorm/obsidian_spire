@@ -217,7 +217,15 @@ export class Level {
     let obj = null;
     if (name === 'sentinel') {
       obj = HD.makeBillboard('sentinel', { height });
-      if (obj) { obj.material = obj.material.clone(); obj.material.color.set('#8a8a96'); this.billboards.push(obj); this.statues.push(obj); }
+      if (obj) {
+        // Statues: both layers of the billboard tinted to cold stone.
+        obj.material = obj.material.clone();
+        obj.material.color.set('#8a8a96');
+        const veil = obj.children[0];
+        if (veil) { veil.material = veil.material.clone(); veil.material.color.set('#8a8a96'); }
+        this.billboards.push(obj);
+        this.statues.push(obj);
+      }
     } else if (name.startsWith('shard')) {
       obj = HD.makeShard(name.slice(5));
     } else if (name === 'rock') {

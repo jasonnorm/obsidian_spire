@@ -12,6 +12,7 @@ import { makeHD, HD_SPECS } from './textures-hd.js';
 import { ART_FOES_A } from './art-foes-a.js';
 import { ART_FOES_B } from './art-foes-b.js';
 import { ART_PEOPLE } from './art-people.js';
+import { paintify } from './paint.js';
 
 export const HD_ART = { ...ART_FOES_A, ...ART_FOES_B, ...ART_PEOPLE };
 
@@ -89,18 +90,59 @@ function rasterise(svg, w, h) {
   });
 }
 
+// The parts of a painting that should give off light: bright, saturated
+// colour such as fire, eye-lights and lantern glow. Returns null when a
+// painting has none.
+function glowMask(cv) {
+  const { width: w, height: h } = cv;
+  const src = cv.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const out = new ImageData(w, h);
+  const d = out.data;
+  let any = 0;
+  for (let i = 0; i < src.length; i += 4) {
+    const a = src[i + 3];
+    if (a < 8) continue;
+    const r = src[i] / 255; const g = src[i + 1] / 255; const b = src[i + 2] / 255;
+    const mx = Math.max(r, g, b);
+    const mn = Math.min(r, g, b);
+    const sat = mx > 0 ? (mx - mn) / mx : 0;
+    // Only near-white-hot, strongly coloured paint glows: fire, eye-lights,
+    // lanterns. Cloth and armour colours stay lit by the scene.
+    const k = Math.min(1, Math.max(0, (mx - 0.88) / 0.1)) * Math.min(1, Math.max(0, (sat - 0.45) / 0.3));
+    if (k <= 0) continue;
+    any++;
+    d[i] = src[i] * k; d[i + 1] = src[i + 1] * k; d[i + 2] = src[i + 2] * k; d[i + 3] = 255;
+  }
+  if (any < 40) return null;
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  c.getContext('2d', { willReadFrequently: true }).putImageData(out, 0, 0);
+  return c;
+}
+
 // Illustrations are rasterised on demand: the people you meet straight away
 // and your sword hand before the view opens, everything else in the
 // background a little at a time.
 const artJobs = new Map();
-const EARLY = ['hand', 'steward', 'merchant', 'priest', 'vael'];
+const EARLY = ['hand', 'steward'];
 function ensureArt(key) {
   if (artJobs.has(key)) return artJobs.get(key);
   const def = HD_ART[key];
   if (!def) return Promise.resolve();
-  const job = Promise.all(Object.entries(def.frames).map(([frame, svg]) => rasterise(svg, def.w, def.h).then((cv) => {
-    if (cv) artCache.set(`${key}:${frame}`, { canvas: cv, tex: canvasTex(cv, { repeat: false }) });
-  })));
+  const job = Promise.all(Object.entries(def.frames).map(async ([frame, svg], i) => {
+    const cv = await rasterise(svg, def.w, def.h);
+    if (!cv) return;
+    // Every illustration gets the same oil-paint pass, which is what makes
+    // the set read as one painted series.
+    await paintify(cv, { seed: key.length * 31 + i * 7 });
+    const glow = glowMask(cv);
+    artCache.set(`${key}:${frame}`, {
+      canvas: cv,
+      tex: canvasTex(cv, { repeat: false }),
+      glow: glow ? canvasTex(glow, { repeat: false }) : null,
+    });
+  }));
   artJobs.set(key, job);
   return job;
 }
@@ -133,49 +175,64 @@ const BLANK = (() => {
   return t;
 })();
 
+// A billboard is two layers sharing one quad: an opaque core that writes
+// depth and casts the shadow, and a blended layer on top that carries the
+// painting's soft edges, mist, smoke and glow. Bright, saturated colour is
+// self-lit so fire and eye-lights shine in the dark and catch the bloom.
 export function makeBillboard(key, { height } = {}) {
   const def = HD_ART[key];
   if (!def) return null;
   // Not painted yet: start with an invisible face and fill it in when ready.
-  const idle = artCache.get(`${key}:idle`) || { tex: BLANK };
+  const idle = artCache.get(`${key}:idle`) || { tex: BLANK, glow: null };
   const pending = idle.tex === BLANK;
   const h = height ?? def.height ?? 1.8;
   const w = (h * def.w) / def.h;
   const geo = new THREE.PlaneGeometry(w, h);
   geo.translate(0, h / 2, 0);
-  const mat = new THREE.MeshStandardMaterial({
-    map: idle.tex,
-    alphaTest: 0.45,
-    side: THREE.DoubleSide,
-    roughness: 0.82,
-    metalness: 0,
-  });
-  const mesh = new THREE.Mesh(geo, mat);
+  const base = { side: THREE.DoubleSide, roughness: 0.82, metalness: 0, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 1.5 };
+  const core = new THREE.MeshStandardMaterial({ ...base, map: idle.tex, alphaTest: 0.6 });
+  const soft = new THREE.MeshStandardMaterial({ ...base, map: idle.tex, transparent: true, depthWrite: false, alphaTest: 0.01 });
+  const mesh = new THREE.Mesh(geo, core);
   mesh.castShadow = true;
-  mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: idle.tex, alphaTest: 0.45 });
+  mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: idle.tex, alphaTest: 0.6 });
+  const veil = new THREE.Mesh(geo, soft);
+  veil.renderOrder = 3;
+  veil.castShadow = false;
+  veil.userData.noShadow = true;
+  mesh.add(veil);
   const frames = {};
-  for (const f of Object.keys(def.frames)) frames[f] = artCache.get(`${key}:${f}`)?.tex || idle.tex;
+  const glows = {};
+  const fill = () => {
+    for (const f of Object.keys(def.frames)) {
+      const a = artCache.get(`${key}:${f}`) || artCache.get(`${key}:idle`);
+      frames[f] = a?.tex || BLANK;
+      glows[f] = a?.glow || null;
+    }
+  };
+  fill();
   let current = 'idle';
-  if (pending) {
-    ensureArt(key).then(() => {
-      for (const f of Object.keys(def.frames)) frames[f] = artCache.get(`${key}:${f}`)?.tex || artCache.get(`${key}:idle`)?.tex || BLANK;
-      mesh.userData.setFrame(current);
-    });
-  }
+  const apply = (frame) => {
+    const t = frames[frame] || frames.idle;
+    const g = glows[frame] || glows.idle || null;
+    // Use whatever materials the layers carry now (statues swap in tinted copies).
+    for (const m of [mesh.material, veil.material]) {
+      m.map = t;
+      m.emissiveMap = g;
+      m.emissiveIntensity = g ? 1.5 : 0;
+      m.needsUpdate = true;
+    }
+    mesh.customDepthMaterial.map = t;
+    mesh.customDepthMaterial.needsUpdate = true;
+  };
+  if (pending) ensureArt(key).then(() => { fill(); apply(current); });
   mesh.userData = {
     billboard: true,
     name: key,
     frames,
     baseScale: mesh.scale.clone(),
-    setFrame(frame) {
-      current = frame;
-      const t = frames[frame] || frames.idle;
-      mat.map = t;
-      mesh.customDepthMaterial.map = t;
-      mat.needsUpdate = true;
-      mesh.customDepthMaterial.needsUpdate = true;
-    },
+    setFrame(frame) { current = frame; apply(frame); },
   };
+  apply('idle');
   return mesh;
 }
 

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Obsidian Spire: painted illustrations</title>
+<style>
+  body { margin: 0; background: #1a1418; color: #e8dcc0; font: 13px/1.4 Georgia, serif; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { margin: 0 0 14px; color: #a99e8c; }
+  .grid { display: flex; flex-wrap: wrap; gap: 18px; }
+  figure { margin: 0; display: grid; gap: 4px; justify-items: center; }
+  figure .pair { display: flex; gap: 6px; align-items: flex-end; }
+  canvas { background: #2b2228; border-radius: 4px; }
+  .mid canvas { background: #6a6670; }
+  .scene canvas { background: radial-gradient(ellipse at 50% 30%, #4a3a52, #120c14 75%); }
+  figcaption { color: #c9b48a; }
+  label { margin-right: 14px; }
+</style>
+</head>
+<body>
+<h1>Painted illustrations</h1>
+<p>Left: the SVG as drawn. Right: after the game's oil-paint pass (js/fp/hd/paint.js). Query: <code>?keys=dragon,troll</code>, <code>?frame=attack</code>, <code>?bg=mid|scene</code>, <code>?scale=0.6</code>, <code>?raw=0</code> to hide the left image.</p>
+<div class="grid" id="grid"></div>
+<script type="module">
+import { ART_FOES_A } from '../js/fp/hd/art-foes-a.js';
+import { ART_FOES_B } from '../js/fp/hd/art-foes-b.js';
+import { ART_PEOPLE } from '../js/fp/hd/art-people.js';
+import { paintify } from '../js/fp/hd/paint.js';
+
+const ART = { ...ART_FOES_A, ...ART_FOES_B, ...ART_PEOPLE };
+const q = new URLSearchParams(location.search);
+const keys = q.get('keys') ? q.get('keys').split(',') : Object.keys(ART);
+const frame = q.get('frame') || 'idle';
+const scale = Number(q.get('scale') || 0.5);
+const showRaw = q.get('raw') !== '0';
+const grid = document.getElementById('grid');
+if (q.get('bg')) document.body.classList.add(q.get('bg'));
+
+function raster(svg, w, h) {
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => { const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, w, h); res(c); };
+    img.onerror = () => res(null);
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  });
+}
+const shown = (c) => { c.style.width = `${c.width * scale}px`; c.style.height = `${c.height * scale}px`; return c; };
+
+let done = 0;
+const t0 = performance.now();
+for (const k of keys) {
+  const def = ART[k];
+  if (!def) continue;
+  const fig = document.createElement('figure');
+  const pair = document.createElement('div');
+  pair.className = 'pair';
+  fig.append(pair);
+  const cap = document.createElement('figcaption');
+  cap.textContent = `${k} / ${frame}`;
+  fig.append(cap);
+  grid.append(fig);
+  const raw = await raster(def.frames[frame] || def.frames.idle, def.w, def.h);
+  if (!raw) { cap.textContent += ' (failed to rasterise)'; continue; }
+  if (showRaw) { const copy = document.createElement('canvas'); copy.width = raw.width; copy.height = raw.height; copy.getContext('2d').drawImage(raw, 0, 0); pair.append(shown(copy)); }
+  const t = performance.now();
+  await paintify(raw);
+  cap.textContent += ` · paint ${Math.round(performance.now() - t)} ms`;
+  pair.append(shown(raw));
+  done++;
+}
+window.__paintDone = { done, ms: Math.round(performance.now() - t0) };
+</script>
+</body>
+</html>
