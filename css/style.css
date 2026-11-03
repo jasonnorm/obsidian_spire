@@ -1013,6 +1013,7 @@ body.fp-mode .board-wrap { border-color: #555555; box-shadow: 0 0 0 2px #000, in
 .fp-canvas-hd { image-rendering: auto; }
 .tb-look { display: none; }
 body.fp-mode .tb-look { display: inline-block; }
+body.fp-mode .tb-cam { display: none; }
 .fp-loading {
   inset: 0;
   display: grid;

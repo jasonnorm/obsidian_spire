@@ -436,6 +436,16 @@ export class Board3D {
     ctl.enablePan = true;
     ctl.screenSpacePanning = false;
     this.controls = ctl;
+    // A drag or zoom by the player hands the camera back to them until the
+    // next turn begins.
+    this.followOn = true;
+    this.userCam = false;
+    ctl.addEventListener('start', () => {
+      if (this.titleMode) return;
+      this.userCam = true;
+      this.camGoal = null;
+      this.camTween = null;
+    });
 
     // Lights.
     this.hemi = new THREE.HemisphereLight('#c5c9ff', '#2a1a10', 0.55);
@@ -798,7 +808,67 @@ export class Board3D {
     }
   }
 
+  // ---------- the following camera ----------
+  setFollow(on) {
+    this.followOn = on;
+    if (!on) { this.camGoal = null; this.followPid = null; }
+  }
+
+  // Direction from the board centre out through a point, for framing a
+  // pawn with the Spire behind it.
+  outward(p) {
+    const d = new THREE.Vector3(p.x, 0, p.z);
+    if (d.length() < 3) d.set(0, 0, 1);
+    return d.normalize();
+  }
+
+  // Ease the camera toward a framing of `target` seen from `dir`.
+  aim(target, dir, dist, elevation = 0.68) {
+    const pos = target.clone()
+      .addScaledVector(dir, Math.cos(elevation) * dist)
+      .add(new THREE.Vector3(0, Math.sin(elevation) * dist, 0));
+    this.camGoal = { pos, target: target.clone() };
+  }
+
+  // Start of a turn: swing round to the pawn and close in.
+  focusPawn(pid) {
+    if (this.titleMode || this.paused) return;
+    this.userCam = false;
+    if (!this.followOn) return;
+    const pw = this.pawns[pid];
+    if (!pw) return;
+    this.followPid = null;
+    this.camTween = null;
+    const target = pw.position.clone().setY(0.9);
+    this.aim(target, this.outward(pw.position), 8.5, 0.62);
+  }
+
+  // The human is choosing a road: frame the pawn and every space it can reach.
+  frameChoices(pid, ids) {
+    if (!this.followOn || this.userCam || this.titleMode || this.paused) return;
+    const pw = this.pawns[pid];
+    const pts = [pw.position.clone(), ...ids.map((id) => new THREE.Vector3(NODE_BY_ID[id].x, 0, NODE_BY_ID[id].z))];
+    const c = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
+    const radius = Math.max(...pts.map((p) => p.distanceTo(c)));
+    const fit = (radius + 1.6) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / Math.min(1, this.camera.aspect);
+    this.aim(c.setY(0.6), this.outward(pw.position), Math.max(9, Math.min(26, fit * 0.95)), 0.8);
+  }
+
+  // While a pawn walks, keep it in view from the same side.
+  followPawn(pid, on) {
+    if (!on) { this.followPid = null; return; }
+    if (!this.followOn || this.userCam || this.titleMode || this.paused) return;
+    this.followPid = pid;
+    const off = this.camera.position.clone().sub(this.controls.target);
+    const flat = new THREE.Vector3(off.x, 0, off.z);
+    this.followOff = flat.lengthSq() > 0.01 ? off : new THREE.Vector3(0, 6, 6);
+    // Moving pawns get a slightly closer, lower shot.
+    if (this.followOff.length() > 11) this.followOff.setLength(11);
+  }
+
   resetView(animated = true) {
+    this.camGoal = null;
+    this.followPid = null;
     const toPos = new THREE.Vector3(0, 21, 16.5);
     if (this.camera.aspect < 1.1) toPos.set(0, 20.5, 13);
     const toTarget = new THREE.Vector3(0, 0.2, 0.6);
@@ -838,7 +908,21 @@ export class Board3D {
       this.camera.position.lerpVectors(c.fromPos, c.toPos, e);
       this.controls.target.lerpVectors(c.fromT, c.toT, e);
       if (k >= 1) this.camTween = null;
+    } else if (!this.titleMode && !this.userCam) {
+      const dt = Math.min(0.05, (now - (this.lastFrame || now)) / 1000);
+      if (this.followPid && this.pawns[this.followPid]) {
+        const t2 = this.pawns[this.followPid].position.clone().setY(0.9);
+        this.camGoal = { target: t2, pos: t2.clone().add(this.followOff) };
+      }
+      if (this.camGoal) {
+        // Exponential smoothing: quick to start, gentle to settle.
+        const k = 1 - Math.exp(-dt * (this.followPid ? 6 : 3.6));
+        this.controls.target.lerp(this.camGoal.target, k);
+        this.camera.position.lerp(this.camGoal.pos, k);
+        if (!this.followPid && this.camera.position.distanceTo(this.camGoal.pos) < 0.02) this.camGoal = null;
+      }
     }
+    this.lastFrame = now;
     // Model animation hooks.
     this.spire.userData.update?.(t);
     for (const m of Object.values(this.buildings)) m.userData.update?.(t);

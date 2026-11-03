@@ -32,7 +32,7 @@ let gen = 0;
 let moveState = null;
 let memorySave = null;
 let webglOK = true;
-const prefs = { muted: false, speed: 1, view: 'board', fpStyle: 'hd', ...(store.get(PREFS_KEY) || {}) };
+const prefs = { muted: false, speed: 1, view: 'board', fpStyle: 'hd', camFollow: true, ...(store.get(PREFS_KEY) || {}) };
 const SPEEDS = [
   { v: 1, label: 'Normal' },
   { v: 0.55, label: 'Brisk' },
@@ -86,6 +86,7 @@ function makeIO(myGen) {
       return new Promise((resolve) => {
         const ids = options.map((o) => o.to);
         board?.highlight(ids);
+        board?.frameChoices(p.id, ids);
         const here = NODE_BY_ID[p.node];
         const stayText = here.type === 'wilds' ? 'make camp and forage' : here.type === 'spire' ? 'stay at the Spire' : `stay at ${here.name}`;
         const msg = `Choose your road: click a glowing space${p.relics.steed ? ' (your steed reaches two roads)' : ''}, or press STAY to ${stayText}.`;
@@ -110,7 +111,10 @@ function makeIO(myGen) {
     async movePawn(p, path, opts = {}) {
       if (!alive()) return frozen();
       const jobs = [];
-      if (board) jobs.push(board.movePawn(p.id, path, opts, view === 'fp' ? null : () => audio.play('step')));
+      if (board) {
+        board.followPawn(p.id, true);
+        jobs.push(board.movePawn(p.id, path, opts, view === 'fp' ? null : () => audio.play('step')).then(() => board.followPawn(p.id, false)));
+      }
       if (fpv && p.human) jobs.push(fpv.ride(path, opts));
       if (!jobs.length) jobs.push(wait(200));
       await Promise.all(jobs);
@@ -123,6 +127,7 @@ function makeIO(myGen) {
       con.setTurn(p.id);
       con.setShards(p);
       board?.setActive(p.id);
+      board?.focusPawn(p.id);
       if (p.human) {
         const save = { state: JSON.parse(JSON.stringify(g.s)), log: chronicleEntries.slice(-80), at: Date.now() };
         memorySave = save;
@@ -439,6 +444,13 @@ function setView(mode, { remember = true } = {}) {
   }
 }
 
+function updateFollowButton() {
+  const b = $('#btn-cam');
+  b.textContent = prefs.camFollow ? 'Camera: Follow' : 'Camera: Free';
+  b.setAttribute('aria-pressed', String(prefs.camFollow));
+  board?.setFollow(prefs.camFollow);
+}
+
 function updateLookButton() {
   const b = $('#btn-fp-style');
   if (!b || !fpv) return;
@@ -543,6 +555,14 @@ async function boot(hotData) {
   });
   $('#btn-view-mode').addEventListener('click', () => toggleView());
   $('#btn-fp-style').addEventListener('click', () => toggleLook());
+  $('#btn-cam').addEventListener('click', () => {
+    audio.play('key');
+    prefs.camFollow = !prefs.camFollow;
+    store.set(PREFS_KEY, prefs);
+    updateFollowButton();
+    if (prefs.camFollow && game) board?.focusPawn(game.s.players[game.s.turn]?.id || 'p');
+  });
+  updateFollowButton();
   $('#btn-sound').addEventListener('click', () => { audio.unlock(); prefs.muted = !prefs.muted; store.set(PREFS_KEY, prefs); applyPrefs(); });
   $('#btn-speed').addEventListener('click', () => {
     const i = SPEEDS.findIndex((s) => s.v === prefs.speed);
