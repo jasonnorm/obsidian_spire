@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obsidian Spire: model preview</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0c0907; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 10px; top: 8px; color: #d8c8b0; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace;
+    background: rgba(12, 9, 7, 0.72); padding: 8px 10px; border-radius: 6px; white-space: pre; pointer-events: none;
+  }
+  #hud.hidden { display: none; }
+</style>
+<script type="importmap">
+{"imports":{"three":"../vendor/three.module.min.js","three/addons/controls/OrbitControls.js":"../vendor/OrbitControls.js"}}
+</script>
+</head>
+<body>
+<div id="hud" class="hidden"></div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+  makeSpire, makeKeep, makeMarket, makeShrine, makeBarrow, makePawn, makeDecoration, makeShardGem,
+} from '../js/models3d.js';
+
+// Query options:
+//   ?shot=game|closeup|crown|console|buildings|pawns|decor|barrows|top|back
+//   ?glow=0..1.5   spire glow level        ?pulse=1   pulse the spire every 3 s
+//   ?t=SECONDS     freeze animation time   ?hud=1     show triangle counts
+//   ?highlight=1   highlight the crimson pawn
+const q = new URLSearchParams(location.search);
+const shot = q.get('shot') || 'game';
+const frozenT = q.has('t') ? parseFloat(q.get('t')) : null;
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = parseFloat(q.get('exposure') || '1.0');
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#0c0907');
+scene.fog = new THREE.Fog('#0c0907', 34, 70);
+
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 200);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+/* ---------- table and board ---------- */
+function woodTexture() {
+  const c = document.createElement('canvas');
+  c.width = 512; c.height = 512;
+  const g = c.getContext('2d');
+  g.fillStyle = '#3a2416';
+  g.fillRect(0, 0, 512, 512);
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 260; i++) {
+    const y = rnd() * 512;
+    const a = 0.04 + rnd() * 0.08;
+    g.strokeStyle = rnd() > 0.5 ? `rgba(20,10,4,${a})` : `rgba(120,72,40,${a})`;
+    g.lineWidth = 1 + rnd() * 3;
+    g.beginPath();
+    g.moveTo(0, y);
+    for (let x = 0; x <= 512; x += 32) g.lineTo(x, y + Math.sin(x * 0.01 + i) * 4 + (rnd() - 0.5) * 2);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(6, 6);
+  t.anisotropy = 4;
+  return t;
+}
+const table = new THREE.Mesh(
+  new THREE.PlaneGeometry(140, 140),
+  new THREE.MeshStandardMaterial({ map: woodTexture(), color: '#8a6a52', roughness: 0.55, metalness: 0 }),
+);
+table.rotation.x = -Math.PI / 2;
+table.position.y = -0.14;
+table.receiveShadow = true;
+scene.add(table);
+
+const boardGroup = new THREE.Group();
+scene.add(boardGroup);
+const boardEdge = new THREE.Mesh(
+  new THREE.CylinderGeometry(10.08, 10.12, 0.14, 96),
+  new THREE.MeshStandardMaterial({ color: '#1b1612', roughness: 0.7 }),
+);
+boardEdge.position.y = -0.07;
+boardEdge.receiveShadow = true;
+boardEdge.castShadow = true;
+boardGroup.add(boardEdge);
+const PROVINCES = ['#7d6b3c', '#3e6a63', '#7a3a25', '#8ea2b2', '#2e4a2b', '#b08a46'];
+PROVINCES.forEach((col, w) => {
+  const c = new THREE.Color(col).lerp(new THREE.Color('#221d18'), 0.5);
+  const geo = new THREE.CircleGeometry(10, 32, ((w * 60 - 30 - 90) * Math.PI) / 180, Math.PI / 3);
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: c, roughness: 0.88 }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.y = 0.001;
+  m.receiveShadow = true;
+  boardGroup.add(m);
+});
+const ringMat = new THREE.MeshStandardMaterial({ color: '#c9b27a', roughness: 0.6 });
+for (const r of [2.4, 9.85]) {
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.03, r + 0.03, 96), ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.003;
+  ring.receiveShadow = true;
+  boardGroup.add(ring);
+}
+
+/* ---------- lights ---------- */
+scene.add(new THREE.HemisphereLight('#c4cfe8', '#3a2818', 0.55));
+const key = new THREE.DirectionalLight('#ffe0b6', 2.6);
+key.position.set(9, 17, 11);
+key.castShadow = true;
+key.shadow.mapSize.set(2048, 2048);
+key.shadow.camera.left = -13;
+key.shadow.camera.right = 13;
+key.shadow.camera.top = 13;
+key.shadow.camera.bottom = -13;
+key.shadow.camera.near = 1;
+key.shadow.camera.far = 50;
+key.shadow.bias = -0.0004;
+key.shadow.normalBias = 0.025;
+scene.add(key);
+const fill = new THREE.DirectionalLight('#8fb0ff', 0.55);
+fill.position.set(-12, 7, 3);
+scene.add(fill);
+const rim = new THREE.DirectionalLight('#ffd2a8', 0.9);
+rim.position.set(-3, 9, -14);
+scene.add(rim);
+
+/* ---------- models ---------- */
+const animated = [];
+const stats = {};
+function tris(obj) {
+  let n = 0;
+  obj.traverse((o) => {
+    if (o.isMesh) {
+      const g = o.geometry;
+      n += (g.index ? g.index.count : g.attributes.position.count) / 3;
+    }
+  });
+  return Math.round(n);
+}
+function put(obj, x, z, ry = 0, label) {
+  obj.position.set(x, 0, z);
+  obj.rotation.y = ry;
+  scene.add(obj);
+  if (obj.userData && typeof obj.userData.update === 'function') animated.push(obj);
+  if (label && !(label in stats)) stats[label] = tris(obj);
+  return obj;
+}
+
+const spire = put(makeSpire(), 0, 0, 0, 'spire');
+if (q.has('glow')) spire.userData.setGlow('#ff8a2a', parseFloat(q.get('glow')));
+
+const keepR = put(makeKeep('#c8262f'), -4.3, 3.2, 0.35, 'keep');
+const keepB = put(makeKeep('#2c6fd8'), 4.3, 3.2, -0.35);
+put(makeMarket(), -2.0, 4.9, 0.15, 'market');
+put(makeShrine(), 2.0, 4.9, -0.15, 'shrine');
+const barrowA = put(makeBarrow(), -5.6, -0.4, 0.5, 'barrow');
+barrowA.userData.setSigil(null);
+const barrowB = put(makeBarrow(), 5.6, -0.4, -0.5);
+barrowB.userData.setSigil('sun', '#f2b632');
+barrowB.userData.setLooted(true);
+const barrowC = put(makeBarrow(), 0, -5.2, 0);
+barrowC.userData.setSigil('moon', '#7fc6ff');
+
+const pawnR = put(makePawn('#c8262f'), -0.85, 2.27, 0.3, 'pawn');
+const pawnB = put(makePawn('#2c6fd8'), 0.85, 2.27, -0.3);
+if (q.get('highlight') === '1') pawnR.userData.setHighlight(true);
+
+const kinds = ['pine', 'oak', 'deadtree', 'reeds', 'rock', 'crystalrock', 'cactus', 'snowpine', 'mushroom'];
+kinds.forEach((k, i) => put(makeDecoration(k), -4.4 + i * 1.1, 7.4, 0, `decor:${k}`));
+['#f2b632', '#c8262f', '#2c6fd8', '#6fd88a', '#b07cff'].forEach((c, i) => {
+  const g = put(makeShardGem(c), -1.2 + i * 0.6, 6.4, 0, i === 0 ? 'gem' : null);
+});
+
+// a few scattered decorations to see them in context
+[['pine', -7.2, 2.4], ['pine', -7.6, 3.4], ['snowpine', 7.2, 2.2], ['rock', 6.8, 4.5], ['oak', -6.6, 5.0], ['crystalrock', 7.6, -2.4], ['deadtree', -7.4, -3.0], ['reeds', -3.2, -6.4], ['mushroom', 3.4, -6.6], ['cactus', 5.0, 6.0]]
+  .forEach(([k, x, z], i) => put(makeDecoration(k), x, z, i * 1.3));
+
+/* ---------- camera shots ---------- */
+const SHOTS = {
+  game: { pos: [0, 15.3, 12.9], target: [0, 0.6, 0.6] },
+  overview: { pos: [0, 17.5, 17.0], target: [0, 1.4, 0.4] },
+  closeup: { pos: [4.6, 5.4, 11.6], target: [0, 3.6, 0] },
+  shaft: { pos: [3.6, 4.6, 8.6], target: [0, 3.55, 0] },
+  crown: { pos: [1.6, 7.6, 3.4], target: [0, 6.5, 0] },
+  console: { pos: [0.9, 1.6, 4.4], target: [0, 0.7, 1.4] },
+  buildings: { pos: [0, 4.2, 9.0], target: [0, 0.6, 4.0] },
+  keeps: { pos: [-4.3, 2.0, 5.6], target: [-4.3, 0.7, 3.2] },
+  pawns: { pos: [0, 1.5, 4.4], target: [0, 0.5, 2.2] },
+  decor: { pos: [0, 3.6, 13.8], target: [0, 0.3, 7.4] },
+  barrows: { pos: [5.6, 2.2, 2.6], target: [5.6, 0.6, -0.4] },
+  barrow2: { pos: [-5.6, 2.2, 2.6], target: [-5.6, 0.6, -0.4] },
+  top: { pos: [0, 24, 0.01], target: [0, 0, 0] },
+  window: { pos: [0.4, 2.3, 3.2], target: [0, 2.0, 0.9] },
+  shrine: { pos: [2.6, 2.0, 7.0], target: [2.0, 0.55, 4.9] },
+  market: { pos: [-1.6, 2.0, 7.0], target: [-2.0, 0.5, 4.9] },
+  back: { pos: [0, 9, -13], target: [0, 2.5, 0] },
+};
+const s = SHOTS[shot] || SHOTS.game;
+camera.position.set(...s.pos);
+controls.target.set(...s.target);
+controls.update();
+
+/* ---------- HUD ---------- */
+const hud = document.getElementById('hud');
+let total = 0;
+scene.traverse((o) => { if (o.isMesh) total += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+window.__stats = { perModel: stats, sceneTriangles: Math.round(total) };
+window.__scene = scene;
+window.__spire = spire;
+if (q.get('hud') === '1') {
+  hud.classList.remove('hidden');
+  hud.textContent = Object.entries(stats).map(([k, v]) => `${k.padEnd(18)} ${String(v).padStart(6)}`).join('\n') + `\n${'scene total'.padEnd(18)} ${String(Math.round(total)).padStart(6)}`;
+}
+
+/* ---------- loop ---------- */
+window.__frames = 0;
+const clock = new THREE.Clock();
+let lastPulse = 0;
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'p') spire.userData.pulse();
+  if (e.key === 'h') pawnR.userData.setHighlight(!pawnR.userData.highlighted);
+});
+renderer.setAnimationLoop(() => {
+  const t = frozenT != null ? frozenT : clock.getElapsedTime();
+  if (q.get('pulse') === '1' && t - lastPulse > 3) {
+    lastPulse = t;
+    spire.userData.pulse();
+  }
+  for (const o of animated) o.userData.update(t);
+  controls.update();
+  renderer.render(scene, camera);
+  window.__frames++;
+});
+</script>
+</body>
+</html>

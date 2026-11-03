@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spire Slide Glyphs</title>
+<style>
+  :root {
+    --slide-ink: #140d08;
+    --page: #0d0a08;
+    --bezel: #2b221b;
+    --bezel-hi: #3d3127;
+    --label: #c9a77a;
+    --muted: #7d6a55;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--page);
+    color: var(--label);
+    font: 13px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: #ffb347; }
+  h2 { margin: 36px 0 12px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  p.note { margin: 0; color: var(--muted); max-width: 70ch; }
+
+  /* one console picture window */
+  .window {
+    --lit: #ffb347;
+    --glow: rgba(255, 179, 71, .55);
+    color: var(--lit);
+    background: var(--slide-ink);
+    border: 5px solid var(--bezel);
+    border-top-color: #1c1611;
+    border-left-color: #1c1611;
+    border-radius: 6px;
+    box-shadow: inset 0 0 14px rgba(0, 0, 0, .9), 0 0 0 1px var(--bezel-hi);
+    aspect-ratio: 4 / 3;
+    padding: 4%;
+    overflow: hidden;
+  }
+  .window svg { display: block; filter: drop-shadow(0 0 1.5px var(--glow)) drop-shadow(0 0 5px var(--glow)); }
+  .window.red    { --lit: #ff4a3a; --glow: rgba(255, 74, 58, .55); }
+  .window.green  { --lit: #7dff9a; --glow: rgba(125, 255, 154, .5); }
+  .window.violet { --lit: #c49bff; --glow: rgba(196, 155, 255, .55); }
+
+  .sheet { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 18px 14px; }
+  .cell { margin: 0; }
+  .cell figcaption { margin-top: 6px; text-align: center; letter-spacing: .06em; }
+
+  .small { display: flex; flex-wrap: wrap; gap: 10px 8px; }
+  .small .cell { width: 60px; }
+  /* 3px bezel + 3px padding each side leaves exactly 48x36 for the glyph */
+  .small .window { width: 60px; height: 48px; aspect-ratio: auto; border-width: 3px; padding: 3px; }
+  .small figcaption { font-size: 9px; margin-top: 3px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .tints { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px 10px; }
+  .tints figcaption { font-size: 11px; color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; slide glyphs</h1>
+  <p class="note" id="count">Loading&hellip;</p>
+
+  <h2>Contact sheet</h2>
+  <div class="sheet" id="sheet"></div>
+
+  <h2>At 48&times;36 (console thumbnail size)</h2>
+  <div class="small" id="small"></div>
+
+  <h2>Other tints</h2>
+  <div class="tints" id="tints"></div>
+
+<script type="module">
+  import { GLYPHS, GLYPH_NAMES, glyph } from '../js/glyphs.js';
+
+  const cell = (name, tint = '') =>
+    `<figure class="cell" data-glyph="${name}"><div class="window ${tint}">${glyph(name)}</div><figcaption>${name}</figcaption></figure>`;
+
+  document.getElementById('count').textContent =
+    `${GLYPH_NAMES.length} glyphs, viewBox 0 0 120 90, lit with CSS color, carved in var(--slide-ink). ` +
+    `Unknown names fall back to "question".`;
+  document.getElementById('sheet').innerHTML = GLYPH_NAMES.map((n) => cell(n)).join('');
+  document.getElementById('small').innerHTML = GLYPH_NAMES.map((n) => cell(n)).join('');
+
+  const tintSet = ['brigands', 'wraith', 'storm', 'gloom', 'sun', 'moon', 'star', 'keep', 'victory', 'defeat'];
+  document.getElementById('tints').innerHTML = [
+    ...tintSet.slice(0, 4).map((n) => cell(n, 'red')),
+    ...tintSet.slice(4, 7).map((n) => cell(n, 'green')),
+    ...tintSet.slice(7).map((n) => cell(n, 'violet')),
+    cell('not-a-glyph', 'violet'),
+  ].join('');
+  window.__glyphsReady = Object.keys(GLYPHS).length;
+</script>
+</body>
+</html>

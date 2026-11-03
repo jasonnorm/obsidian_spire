@@ -1,0 +1,14 @@
+{
+  "name": "obsidian-spire",
+  "private": true,
+  "type": "module",
+  "description": "An electronic quest board game for one Warden against a computer rival, in the browser.",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "build": "node tools/build.mjs",
+    "sim": "node tools/sim.mjs 300"
+  },
+  "devDependencies": {
+    "esbuild": "0.20.2"
+  }
+}
