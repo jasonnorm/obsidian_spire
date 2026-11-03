@@ -1057,7 +1057,7 @@ body.fp-mode .tb-cam { display: none; }
 .fp-hd .fp-btn:active { transform: translateY(1px); border-color: rgba(227, 196, 124, 0.8); }
 .fp-hd .fp-ride { background: linear-gradient(180deg, #e3c47c, #a67c34); color: #1b1208; }
 .fp-hd .fp-pad .fp-leave { background: linear-gradient(180deg, rgba(120, 30, 30, 0.95), rgba(70, 14, 14, 0.95)); color: #ffd9c9; }
-.fp-hd .fp-hand { width: min(52vh, 560px); height: min(52vh, 560px); image-rendering: auto; }
+.fp-hd .fp-hand { height: 78%; width: auto; max-width: 44%; max-height: 560px; aspect-ratio: 1 / 1; image-rendering: auto; }
 
 /* Narrow cards: each label takes its own line above its two peg rows. */
 @container (max-width: 470px) {

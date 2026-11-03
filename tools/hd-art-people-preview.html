@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spire HD People</title>
+<style>
+  :root {
+    --page: #0f0c0e;
+    --dark: #1a1418;
+    --grey: #808080;
+    --label: #d8b98a;
+    --muted: #8a7764;
+    --rule: #2e2428;
+    --accent: #ffb347;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--page);
+    color: var(--label);
+    font: 13px/1.45 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  h2 small { color: var(--muted); font-weight: normal; letter-spacing: .04em; text-transform: none; }
+  p.note { margin: 0 0 16px; color: var(--muted); max-width: 90ch; }
+  #error { color: #ff6a6a; white-space: pre-wrap; }
+  label.opt { display: inline-flex; gap: 6px; align-items: center; margin: 0 18px 18px 0; color: var(--label); cursor: pointer; }
+  section { border-top: 1px solid var(--rule); padding: 18px 0 22px; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  .bg { display: flex; align-items: flex-end; gap: 12px; padding: 10px; border: 1px solid var(--rule); max-width: 100%; overflow: hidden; }
+  .bg.dark { background: var(--dark); }
+  .bg.grey { background: var(--grey); }
+  figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; max-width: 100%; }
+  figcaption { font-size: 10px; color: var(--muted); }
+  .bg.grey figcaption { color: #222; }
+  canvas { display: block; max-width: 100%; height: auto; }
+  .frame-title { margin: 0 0 6px; color: var(--label); letter-spacing: .08em; font-weight: 600; }
+  .lineup { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 18px; padding: 14px; border: 1px solid var(--rule);
+    background: linear-gradient(#2a2440 0%, #4a3448 45%, #6a4a40 70%, #2a2018 70.2%, #1a1410 100%); }
+  .lineup figcaption { color: #e8d8c0; }
+  .hud { display: flex; flex-wrap: wrap; gap: 14px; }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; HD people</h1>
+  <p class="note" id="count">Rasterising&hellip;</p>
+  <p id="error"></p>
+  <label class="opt"><input type="checkbox" id="alphatest"> show billboards with the scene's alpha test (0.45)</label>
+  <div id="lineup"></div>
+  <div id="hand"></div>
+  <div id="sheet"></div>
+
+<script type="module">
+  const errBox = document.getElementById('error');
+  const errors = [];
+  const fail = (e) => {
+    const msg = String((e && e.stack) || e);
+    errors.push(msg);
+    errBox.textContent = errors.join('\n\n');
+    window.__hdPeopleError = errors.join('\n');
+  };
+  window.addEventListener('error', (e) => fail(e.error || e.message));
+
+  // Rasterise an SVG string exactly as the game does: Image -> 2D canvas.
+  const rasterise = (svg, w, h) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const cv = document.createElement('canvas');
+      cv.width = w;
+      cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(cv);
+    };
+    img.onerror = () => reject(new Error('image failed to load'));
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+
+  // A copy with alpha thresholded at 0.45, as the billboard material does.
+  const alphaTested = (src) => {
+    const cv = document.createElement('canvas');
+    cv.width = src.width;
+    cv.height = src.height;
+    const g = cv.getContext('2d');
+    g.drawImage(src, 0, 0);
+    const d = g.getImageData(0, 0, cv.width, cv.height);
+    for (let i = 3; i < d.data.length; i += 4) d.data[i] = d.data[i] >= 115 ? 255 : 0;
+    g.putImageData(d, 0, 0);
+    return cv;
+  };
+
+  const scaled = (src, s, cap) => {
+    const fig = document.createElement('figure');
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(src.width * s);
+    cv.height = Math.round(src.height * s);
+    const g = cv.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, cv.width, cv.height);
+    fig.append(cv);
+    const c = document.createElement('figcaption');
+    c.textContent = cap;
+    fig.append(c);
+    return fig;
+  };
+
+  try {
+    const { ART_PEOPLE } = await import('../js/fp/hd/art-people.js');
+    const keys = Object.keys(ART_PEOPLE);
+    const raster = {};
+    let frames = 0;
+    for (const key of keys) {
+      const def = ART_PEOPLE[key];
+      raster[key] = {};
+      for (const [frame, svg] of Object.entries(def.frames)) {
+        if (typeof svg !== 'string' || !svg.startsWith('<svg')) throw new Error(`${key}.${frame}: not an SVG string`);
+        try {
+          raster[key][frame] = await rasterise(svg, def.w, def.h);
+          frames++;
+        } catch (e) {
+          fail(`${key}.${frame}: ${e.message}`);
+        }
+      }
+    }
+    window.__hdPeopleFrames = frames;
+
+    const render = () => {
+      const at = document.getElementById('alphatest').checked;
+      const pick = (key, frame) => (at && ART_PEOPLE[key].height ? alphaTested(raster[key][frame]) : raster[key][frame]);
+
+      // Lineup at one pixels-per-metre scale on a dusk backdrop.
+      const lineup = document.getElementById('lineup');
+      lineup.innerHTML = '<h2>Lineup <small>idle and gesture, scaled to world height (190 px per metre)</small></h2>';
+      const row = document.createElement('div');
+      row.className = 'lineup';
+      for (const key of keys) {
+        const def = ART_PEOPLE[key];
+        if (!def.height) continue;
+        for (const frame of Object.keys(def.frames)) {
+          if (!raster[key][frame]) continue;
+          const s = (190 * def.height) / def.h;
+          row.append(scaled(pick(key, frame), s, `${key} ${frame === 'attack' ? 'gesture' : frame}`));
+        }
+      }
+      lineup.append(row);
+
+      // The hand in the bottom-right corner of a 1280x720 frame, at the
+      // size the game's overlay uses (96/300 of the view height), and larger.
+      const hand = document.getElementById('hand');
+      hand.innerHTML = '<section><h2>Hand <small>composited into a 1280&times;720 view, bottom-right, as the overlay</small></h2></section>';
+      const hud = document.createElement('div');
+      hud.className = 'hud';
+      for (const [frac, label] of [[96 / 300, 'game overlay size (32% of view height)'], [0.5, '50% of view height']]) {
+        for (const frame of ['idle', 'attack']) {
+          const src = raster.hand?.[frame];
+          if (!src) continue;
+          const cv = document.createElement('canvas');
+          cv.width = 1280;
+          cv.height = 720;
+          const g = cv.getContext('2d');
+          const sky = g.createLinearGradient(0, 0, 0, 720);
+          sky.addColorStop(0, '#1d1a2c');
+          sky.addColorStop(0.55, '#3a2a36');
+          sky.addColorStop(0.56, '#1c1612');
+          sky.addColorStop(1, '#0e0b0a');
+          g.fillStyle = sky;
+          g.fillRect(0, 0, 1280, 720);
+          const size = Math.round(720 * frac);
+          g.imageSmoothingQuality = 'high';
+          g.drawImage(src, 1280 - size, 720 - size, size, size);
+          cv.style.width = '640px';
+          const fig = document.createElement('figure');
+          fig.append(cv);
+          const cap = document.createElement('figcaption');
+          cap.textContent = `${frame} - ${label}`;
+          fig.append(cap);
+          hud.append(fig);
+        }
+      }
+      hand.firstChild.append(hud);
+
+      // Every frame at 50% and 100% on dark and on mid-grey.
+      const sheet = document.getElementById('sheet');
+      sheet.innerHTML = '';
+      for (const key of keys) {
+        const def = ART_PEOPLE[key];
+        const sec = document.createElement('section');
+        sec.id = `art-${key}`;
+        sec.innerHTML = `<h2>${key} <small>${def.w}&times;${def.h} px &middot; ${def.height ? `${def.height} m` : 'screen overlay'} &middot; frames: ${Object.keys(def.frames).join(', ')}</small></h2>`;
+        for (const frame of Object.keys(def.frames)) {
+          if (!raster[key][frame]) continue;
+          const t = document.createElement('div');
+          t.className = 'frame-title';
+          t.textContent = frame === 'attack' ? (def.height ? 'attack (gesture)' : 'attack (mid-swing)') : frame;
+          sec.append(t);
+          const r = document.createElement('div');
+          r.className = 'row';
+          for (const bg of ['dark', 'grey']) {
+            const box = document.createElement('div');
+            box.className = `bg ${bg}`;
+            box.dataset.key = key;
+            box.dataset.frame = frame;
+            box.dataset.bg = bg;
+            const src = pick(key, frame);
+            box.append(scaled(src, 0.5, '50%'), scaled(src, 1, '100%'));
+            r.append(box);
+          }
+          sec.append(r);
+        }
+        sheet.append(sec);
+      }
+    };
+    render();
+    document.getElementById('alphatest').addEventListener('change', render);
+    document.getElementById('count').textContent =
+      `${keys.length} illustrations, ${frames} frames, each rasterised from its SVG string through Image -> canvas.`;
+    window.__hdPeopleReady = true;
+  } catch (e) {
+    fail(e);
+    window.__hdPeopleReady = true;
+  }
+</script>
+</body>
+</html>

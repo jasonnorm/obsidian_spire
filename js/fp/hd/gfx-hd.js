@@ -79,7 +79,9 @@ function rasterise(svg, w, h) {
       const cv = document.createElement('canvas');
       cv.width = w;
       cv.height = h;
-      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      // A CPU-backed canvas: GPU canvases make the browser's graphics
+      // process stall when a WebGL context is created afterwards.
+      cv.getContext('2d', { willReadFrequently: true }).drawImage(img, 0, 0, w, h);
       resolve(cv);
     };
     img.onerror = () => resolve(null);
@@ -87,34 +89,56 @@ function rasterise(svg, w, h) {
   });
 }
 
-// Rasterise every illustration once. Resolves when all are ready.
+// Illustrations are rasterised on demand: the people you meet straight away
+// and your sword hand before the view opens, everything else in the
+// background a little at a time.
+const artJobs = new Map();
+const EARLY = ['hand', 'steward', 'merchant', 'priest', 'vael'];
+function ensureArt(key) {
+  if (artJobs.has(key)) return artJobs.get(key);
+  const def = HD_ART[key];
+  if (!def) return Promise.resolve();
+  const job = Promise.all(Object.entries(def.frames).map(([frame, svg]) => rasterise(svg, def.w, def.h).then((cv) => {
+    if (cv) artCache.set(`${key}:${frame}`, { canvas: cv, tex: canvasTex(cv, { repeat: false }) });
+  })));
+  artJobs.set(key, job);
+  return job;
+}
+
 let artReady = null;
 export function loadArt() {
   if (artReady) return artReady;
-  const jobs = [];
-  for (const [key, def] of Object.entries(HD_ART)) {
-    for (const [frame, svg] of Object.entries(def.frames)) {
-      jobs.push(rasterise(svg, def.w, def.h).then((cv) => {
-        if (!cv) return;
-        artCache.set(`${key}:${frame}`, { canvas: cv, tex: canvasTex(cv, { repeat: false }) });
-      }));
-    }
-  }
-  artReady = Promise.all(jobs);
+  artReady = Promise.all(EARLY.map(ensureArt)).then(() => {
+    const rest = Object.keys(HD_ART).filter((k) => !artJobs.has(k));
+    const next = () => {
+      const k = rest.shift();
+      if (!k) return;
+      ensureArt(k).then(() => setTimeout(next, 30));
+    };
+    setTimeout(next, 400);
+  });
   return artReady;
-}
-
-export function artCanvas(key, frame = 'idle') {
-  return (artCache.get(`${key}:${frame}`) || artCache.get(`${key}:idle`))?.canvas || null;
 }
 
 // A lit, upright billboard that turns to face the camera around its vertical
 // axis. Its geometry stands on y = 0.
+export function artCanvas(key, frame = 'idle') {
+  if (!artCache.has(`${key}:idle`)) ensureArt(key);
+  return (artCache.get(`${key}:${frame}`) || artCache.get(`${key}:idle`))?.canvas || null;
+}
+
+const BLANK = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 0]), 1, 1);
+  t.needsUpdate = true;
+  return t;
+})();
+
 export function makeBillboard(key, { height } = {}) {
   const def = HD_ART[key];
   if (!def) return null;
-  const idle = artCache.get(`${key}:idle`);
-  if (!idle) return null;
+  // Not painted yet: start with an invisible face and fill it in when ready.
+  const idle = artCache.get(`${key}:idle`) || { tex: BLANK };
+  const pending = idle.tex === BLANK;
   const h = height ?? def.height ?? 1.8;
   const w = (h * def.w) / def.h;
   const geo = new THREE.PlaneGeometry(w, h);
@@ -131,12 +155,20 @@ export function makeBillboard(key, { height } = {}) {
   mesh.customDepthMaterial = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, map: idle.tex, alphaTest: 0.45 });
   const frames = {};
   for (const f of Object.keys(def.frames)) frames[f] = artCache.get(`${key}:${f}`)?.tex || idle.tex;
+  let current = 'idle';
+  if (pending) {
+    ensureArt(key).then(() => {
+      for (const f of Object.keys(def.frames)) frames[f] = artCache.get(`${key}:${f}`)?.tex || artCache.get(`${key}:idle`)?.tex || BLANK;
+      mesh.userData.setFrame(current);
+    });
+  }
   mesh.userData = {
     billboard: true,
     name: key,
     frames,
     baseScale: mesh.scale.clone(),
     setFrame(frame) {
+      current = frame;
       const t = frames[frame] || frames.idle;
       mat.map = t;
       mesh.customDepthMaterial.map = t;

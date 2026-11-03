@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HD Foes B</title>
+<style>
+  :root {
+    --page: #0d0a0c;
+    --dark: #1a1418;
+    --grey: #808080;
+    --label: #d9b98a;
+    --muted: #8a7462;
+    --rule: #2e2428;
+    --accent: #ffb347;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--page);
+    color: var(--label);
+    font: 13px/1.45 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h2 { margin: 0 0 10px; font-size: 15px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
+  h2 small { color: var(--muted); font-weight: normal; letter-spacing: .03em; text-transform: none; }
+  h3 { margin: 14px 0 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  p.note { margin: 0 0 18px; color: var(--muted); max-width: 90ch; }
+  #error { color: #ff6a5a; white-space: pre-wrap; }
+  nav { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 18px; }
+  nav a { color: var(--label); }
+  section.art { border-top: 1px solid var(--rule); padding: 18px 0 26px; }
+  .frames { display: flex; flex-direction: column; gap: 18px; }
+  .frame > b { display: block; margin-bottom: 6px; letter-spacing: .08em; }
+  .row { display: flex; gap: 10px; align-items: flex-end; overflow-x: auto; padding-bottom: 6px; }
+  figure { margin: 0; display: flex; flex-direction: column; gap: 4px; flex: none; }
+  figcaption { font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .bg { padding: 8px; border: 1px solid var(--rule); line-height: 0; }
+  .bg.dark { background: var(--dark); }
+  .bg.grey { background: var(--grey); }
+  .bg.torch { background: #0a0708; }
+  canvas { display: block; max-width: none; }
+  .lineup { display: flex; align-items: flex-end; gap: 16px; padding: 12px; border: 1px solid var(--rule); overflow-x: auto; margin-bottom: 10px; }
+  .lineup.grey { background: var(--grey); }
+  .lineup.torch { background: #0a0708; }
+  .lineup figcaption { color: #222; }
+  .lineup.torch figcaption { color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; HD foes, set B</h1>
+  <p class="note" id="status">Rasterising&hellip;</p>
+  <p id="error"></p>
+  <nav id="nav"></nav>
+  <h3>Line-up at world scale (60 px per metre)</h3>
+  <div class="lineup grey" id="lineupGrey"></div>
+  <div class="lineup torch" id="lineupTorch"></div>
+  <div id="sheet"></div>
+
+<script type="module">
+  const errBox = document.getElementById('error');
+  const errors = [];
+  const fail = (e) => { const m = String((e && e.stack) || e); errors.push(m); errBox.textContent = errors.join('\n'); };
+  window.addEventListener('error', (e) => fail(e.error || e.message));
+  window.__hdB = { done: false, frames: 0, empty: [], errors };
+
+  // Rasterise an SVG string the way the game does: Image from a data URL, drawn to a 2D canvas.
+  function rasterise(svg, w, h) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        resolve(cv);
+      };
+      img.onerror = () => reject(new Error('image failed to load'));
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    });
+  }
+  function coverage(cv) {
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 115) n++;
+    return n / (cv.width * cv.height);
+  }
+  function scaled(src, s) {
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(src.width * s); cv.height = Math.round(src.height * s);
+    const g = cv.getContext('2d');
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(src, 0, 0, cv.width, cv.height);
+    return cv;
+  }
+  // The art multiplied by a warm radial torch gradient, confined to the art's alpha.
+  function torchlit(src, s = 1) {
+    const w = Math.round(src.width * s), h = Math.round(src.height * s);
+    const art = scaled(src, s);
+    const tint = document.createElement('canvas');
+    tint.width = w; tint.height = h;
+    const tg = tint.getContext('2d');
+    const r = Math.max(w, h) * 0.85;
+    const grad = tg.createRadialGradient(w * 0.38, h * 0.62, r * 0.05, w * 0.38, h * 0.62, r);
+    grad.addColorStop(0, '#ffe2b0');
+    grad.addColorStop(0.45, '#d8823a');
+    grad.addColorStop(1, '#2a1420');
+    tg.fillStyle = grad;
+    tg.fillRect(0, 0, w, h);
+    tg.globalCompositeOperation = 'destination-in';
+    tg.drawImage(art, 0, 0);
+    const ag = art.getContext('2d');
+    ag.globalCompositeOperation = 'multiply';
+    ag.drawImage(tint, 0, 0);
+    return art;
+  }
+  function fig(canvas, caption, cls) {
+    const f = document.createElement('figure');
+    const box = document.createElement('div');
+    box.className = `bg ${cls}`;
+    box.appendChild(canvas);
+    const c = document.createElement('figcaption');
+    c.textContent = caption;
+    f.append(box, c);
+    return f;
+  }
+
+  try {
+    const t0 = performance.now();
+    const { ART_FOES_B } = await import('../js/fp/hd/art-foes-b.js');
+    const keys = Object.keys(ART_FOES_B);
+    const nav = document.getElementById('nav');
+    const sheet = document.getElementById('sheet');
+    const lineGrey = document.getElementById('lineupGrey');
+    const lineTorch = document.getElementById('lineupTorch');
+    const PPM = 60;
+    const ids = new Set();
+    let dupes = 0;
+
+    for (const key of keys) {
+      const def = ART_FOES_B[key];
+      nav.insertAdjacentHTML('beforeend', `<a href="#${key}">${key}</a>`);
+      const sec = document.createElement('section');
+      sec.className = 'art';
+      sec.id = key;
+      sec.innerHTML = `<h2>${key} <small>${def.w} &times; ${def.h} px &middot; ${def.height} m</small></h2>`;
+      const frames = document.createElement('div');
+      frames.className = 'frames';
+      sec.appendChild(frames);
+      sheet.appendChild(sec);
+
+      for (const [frame, svg] of Object.entries(def.frames)) {
+        // ids must carry the key-frame prefix and never repeat across frames
+        for (const m of svg.matchAll(/\sid="([^"]+)"/g)) {
+          if (!m[1].startsWith(`${key}-${frame}-`) || ids.has(m[1])) dupes++;
+          ids.add(m[1]);
+        }
+        const t = performance.now();
+        const cv = await rasterise(svg, def.w, def.h);
+        const ms = Math.round(performance.now() - t);
+        const cov = coverage(cv);
+        window.__hdB.frames++;
+        if (cov < 0.02) window.__hdB.empty.push(`${key}:${frame}`);
+        const box = document.createElement('div');
+        box.className = 'frame';
+        box.innerHTML = `<b>${frame}</b>`;
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.append(
+          fig(cv, `100% dark · ${(svg.length / 1024).toFixed(0)} KB · ${ms} ms · cover ${(cov * 100).toFixed(1)}%`, 'dark'),
+          fig(scaled(cv, 0.5), '50% dark', 'dark'),
+        );
+        const row2 = document.createElement('div');
+        row2.className = 'row';
+        const g100 = document.createElement('canvas');
+        g100.width = cv.width; g100.height = cv.height;
+        g100.getContext('2d').drawImage(cv, 0, 0);
+        row2.append(fig(g100, '100% mid-grey', 'grey'), fig(scaled(cv, 0.5), '50% mid-grey', 'grey'));
+        const row3 = document.createElement('div');
+        row3.className = 'row';
+        row3.append(fig(torchlit(cv, 1), '100% torchlit', 'torch'), fig(torchlit(cv, 0.5), '50% torchlit', 'torch'));
+        box.append(row, row2, row3);
+        frames.appendChild(box);
+
+        if (frame === 'idle' || frame === 'attack') {
+          const s = (def.height * PPM) / def.h;
+          lineGrey.appendChild(fig(scaled(cv, s), `${key} ${frame}`, ''));
+          lineTorch.appendChild(fig(torchlit(cv, s), `${key} ${frame}`, ''));
+        }
+      }
+    }
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    document.getElementById('status').textContent =
+      `${keys.length} illustrations, ${window.__hdB.frames} frames rasterised through Image → canvas in ${secs} s.` +
+      (window.__hdB.empty.length ? ` EMPTY: ${window.__hdB.empty.join(', ')}.` : ' Every frame has content.') +
+      (dupes ? ` ${dupes} id problems.` : ' All ids prefixed and unique.');
+    window.__hdB.dupes = dupes;
+    window.__hdB.done = true;
+  } catch (e) {
+    fail(e);
+    window.__hdB.done = true;
+  }
+</script>
+</body>
+</html>

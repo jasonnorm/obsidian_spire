@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HD Foes Set A</title>
+<style>
+  :root {
+    --page: #0d0a0c;
+    --label: #c9a77a;
+    --muted: #7d6a55;
+    --rule: #2b221b;
+    --dark: #1a1418;
+    --grey: #808080;
+    --night: #0a0709;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--page);
+    color: var(--label);
+    font: 13px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: #ffb347; }
+  h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: #ffb347; }
+  h2 small { color: var(--muted); font-weight: normal; letter-spacing: .04em; text-transform: none; }
+  h3 { margin: 14px 0 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  p.note { margin: 0 0 20px; color: var(--muted); max-width: 90ch; }
+  #error { color: #ff5555; white-space: pre-wrap; }
+  #error:empty { display: none; }
+
+  section.art { border-top: 1px solid var(--rule); padding: 18px 0 22px; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+  .bg { display: flex; align-items: flex-end; gap: 12px; padding: 10px; border: 1px solid var(--rule); max-width: 100%; overflow-x: auto; }
+  .bg.dark { background: var(--dark); }
+  .bg.grey { background: var(--grey); }
+  .bg.night { background: var(--night); }
+  figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  figcaption { font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .bg.grey figcaption { color: #1a1a1a; }
+  canvas { display: block; max-width: 100%; height: auto; }
+  .lineup { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 16px; padding: 12px; background: var(--dark); border: 1px solid var(--rule); margin-bottom: 24px; }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; modern foes, set A</h1>
+  <p class="note" id="count">Rasterising&hellip;</p>
+  <p id="error"></p>
+  <div id="lineups"></div>
+  <div id="sheet"></div>
+
+<script type="module">
+  const errBox = document.getElementById('error');
+  const errors = [];
+  const fail = (e) => { const m = String((e && (e.stack || e.message)) || e); errors.push(m); errBox.textContent = errors.join('\n'); };
+  window.addEventListener('error', (e) => fail(e.error || e.message));
+
+  // The same path the game uses: an SVG string -> data URL -> Image -> 2D canvas.
+  const rasterise = (svg, w, h) => new Promise((resolve) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => {
+      const cv = document.createElement('canvas');
+      cv.width = w;
+      cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      resolve(cv);
+    };
+    img.onerror = () => resolve(null);
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+
+  // Share of pixels with any opacity: a blank canvas means the SVG failed.
+  const coverage = (cv) => {
+    const px = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let n = 0;
+    for (let i = 3; i < px.length; i += 4) if (px[i] > 8) n++;
+    return n / (cv.width * cv.height);
+  };
+
+  // A copy at a display scale (the backing store stays full resolution).
+  const shown = (src, scale) => {
+    const cv = document.createElement('canvas');
+    cv.width = src.width;
+    cv.height = src.height;
+    cv.getContext('2d').drawImage(src, 0, 0);
+    cv.style.width = `${Math.round(src.width * scale)}px`;
+    return cv;
+  };
+
+  // Torchlit: the figure multiplied by a warm radial falloff from a torch to the
+  // lower left, alpha kept from the original.
+  const torchlit = (src, scale) => {
+    const { width: w, height: h } = src;
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    const g = cv.getContext('2d');
+    g.drawImage(src, 0, 0);
+    g.globalCompositeOperation = 'multiply';
+    const grad = g.createRadialGradient(w * 0.18, h * 0.62, 0, w * 0.18, h * 0.62, Math.max(w, h) * 1.05);
+    grad.addColorStop(0, '#ffd8a0');
+    grad.addColorStop(0.35, '#e8955a');
+    grad.addColorStop(0.75, '#6a3a2a');
+    grad.addColorStop(1, '#241418');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+    g.globalCompositeOperation = 'destination-in';
+    g.drawImage(src, 0, 0);
+    g.globalCompositeOperation = 'source-over';
+    cv.style.width = `${Math.round(w * scale)}px`;
+    return cv;
+  };
+
+  const figure = (canvas, caption, data = {}) => {
+    const fig = document.createElement('figure');
+    Object.assign(fig.dataset, data);
+    fig.append(canvas);
+    const cap = document.createElement('figcaption');
+    cap.textContent = caption;
+    fig.append(cap);
+    return fig;
+  };
+  const box = (cls, data, ...figs) => {
+    const b = document.createElement('div');
+    b.className = `bg ${cls}`;
+    Object.assign(b.dataset, data);
+    b.append(...figs);
+    return b;
+  };
+
+  try {
+    const t0 = performance.now();
+    const { ART_FOES_A } = await import('../js/fp/hd/art-foes-a.js');
+    const keys = Object.keys(ART_FOES_A);
+    const raster = {};
+    const stats = [];
+    await Promise.all(keys.flatMap((k) => Object.entries(ART_FOES_A[k].frames).map(async ([f, svg]) => {
+      const def = ART_FOES_A[k];
+      const cv = await rasterise(svg, def.w, def.h);
+      const cover = cv ? coverage(cv) : 0;
+      if (!cv || cover < 0.02) fail(new Error(`${k}/${f}: did not rasterise (coverage ${cover.toFixed(3)})`));
+      raster[`${k}:${f}`] = cv;
+      stats.push({ key: k, frame: f, w: def.w, h: def.h, kb: Math.round(svg.length / 1024), cover: +cover.toFixed(3) });
+    })));
+    const ms = Math.round(performance.now() - t0);
+
+    // Lineup: every idle frame at one scale per world metre, on the dark ground.
+    const lineups = document.getElementById('lineups');
+    {
+      const ppm = 120;
+      const h = document.createElement('h2');
+      h.innerHTML = `Lineup <small>idle and attack, scaled to world height (${ppm} px per metre)</small>`;
+      const row = document.createElement('div');
+      row.className = 'lineup';
+      for (const k of keys) {
+        const def = ART_FOES_A[k];
+        for (const f of Object.keys(def.frames)) {
+          const cv = raster[`${k}:${f}`];
+          if (!cv) continue;
+          row.append(figure(shown(cv, (ppm * def.height) / def.h), `${k} ${f} · ${def.height} m`, { key: k, frame: f }));
+        }
+      }
+      lineups.append(h, row);
+    }
+
+    const sheet = document.getElementById('sheet');
+    for (const k of keys) {
+      const def = ART_FOES_A[k];
+      const sec = document.createElement('section');
+      sec.className = 'art';
+      sec.id = `art-${k}`;
+      sec.innerHTML = `<h2>${k} <small>${def.w}&times;${def.h} px &middot; ${def.height} m &middot; frames: ${Object.keys(def.frames).join(', ')}</small></h2>`;
+      for (const f of Object.keys(def.frames)) {
+        const cv = raster[`${k}:${f}`];
+        if (!cv) continue;
+        const h3 = document.createElement('h3');
+        h3.textContent = `${f} · 50%`;
+        const half = document.createElement('div');
+        half.className = 'row';
+        half.append(
+          box('dark', { key: k, frame: f, bg: 'dark', scale: 0.5 }, figure(shown(cv, 0.5), 'dark #1a1418')),
+          box('grey', { key: k, frame: f, bg: 'grey', scale: 0.5 }, figure(shown(cv, 0.5), 'mid-grey #808080')),
+          box('night', { key: k, frame: f, bg: 'torch', scale: 0.5 }, figure(torchlit(cv, 0.5), 'torchlit')),
+        );
+        const h3b = document.createElement('h3');
+        h3b.textContent = `${f} · 100%`;
+        const full = document.createElement('div');
+        full.className = 'row';
+        full.append(
+          box('dark', { key: k, frame: f, bg: 'dark', scale: 1 }, figure(shown(cv, 1), 'dark #1a1418')),
+          box('grey', { key: k, frame: f, bg: 'grey', scale: 1 }, figure(shown(cv, 1), 'mid-grey #808080')),
+          box('night', { key: k, frame: f, bg: 'torch', scale: 1 }, figure(torchlit(cv, 1), 'torchlit')),
+        );
+        sec.append(h3, half, h3b, full);
+      }
+      sheet.append(sec);
+    }
+
+    const frames = stats.length;
+    document.getElementById('count').textContent =
+      `${keys.length} foes, ${frames} frames rasterised through Image -> canvas in ${ms} ms. ` +
+      'Each frame at 50% and 100% on the dark ground (#1a1418), on mid-grey, and torchlit (multiplied by a warm radial falloff).';
+    window.__hdArtA = { ok: errors.length === 0, frames, stats, ms, errors };
+  } catch (e) {
+    fail(e);
+    window.__hdArtA = { ok: false, frames: 0, errors };
+  }
+</script>
+</body>
+</html>

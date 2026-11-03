@@ -452,6 +452,29 @@ function gripFist(c, base, o = {}) {
   return s;
 }
 
+// A steel gauntlet gripping a vertical pole through (0,0): articulated
+// finger lames with rivets, the thumb over the top, a flared cuff above.
+function gauntletGrip(c, cuffRot = 0) {
+  const sv = L(c, [0, 0, 0, 1], [[0, '#f6f8fc'], [0.2, '#c4ccd8'], [0.45, '#6e7686'], [0.62, '#323744'], [0.82, '#7e8494'], [0.94, '#c8b0a0'], [1, '#9db4d8']]);
+  let s = '';
+  // cuff flaring up toward the forearm
+  s += G(`rotate(${cuffRot})`, part(c, 'M-16 -14 C-18 -24 -22 -34 -27 -44 L27 -44 C22 -34 18 -24 16 -14Z', plate(c), Ln(c, 'M-20 -30 L20 -30', '#1e2028', 1.4, 0.7) + Ln(c, 'M-26 -42 L26 -42', '#e8b844', 2.4)));
+  s += part(c, 'M-15 -15 C-17 0 -16 14 -12 23 L11 23 C15 14 16 0 15 -15Z', '#2a2e38');
+  const bands = [[-14, 14, -9, 9.6], [-15, 15, 0.2, 9.6], [-14.5, 14, 9.2, 9.2], [-12.5, 11.5, 17.6, 8]];
+  for (const [x1, x2, y, h] of bands) {
+    const t = y - h / 2;
+    const b = y + h / 2;
+    for (const [a0, a1] of [[x1, x1 + (x2 - x1) * 0.42], [x1 + (x2 - x1) * 0.38, x2]]) {
+      const d = `M${f2(a0 + 2)} ${f2(t)} L${f2(a1 - 2)} ${f2(t)} C${f2(a1 + 1)} ${f2(t)} ${f2(a1 + 1)} ${f2(b)} ${f2(a1 - 2)} ${f2(b)} L${f2(a0 + 2)} ${f2(b)} C${f2(a0 - 1)} ${f2(b)} ${f2(a0 - 1)} ${f2(t)} ${f2(a0 + 2)} ${f2(t)}Z`;
+      s += part(c, d, sv, Ln(c, `M${f2(a0 + 2)} ${f2(t + 2)} L${f2(a1 - 2)} ${f2(t + 2)}`, '#ffffff', 1.2, 0.85, 0.4) + E(c, (a0 + a1) / 2, b - 1, (a1 - a0) * 0.6, 1.8, DEEP, 0.6, 1));
+    }
+    s += E(c, x1 + (x2 - x1) * 0.4, y, 1.3, 1.3, '#e8b844');
+  }
+  s += part(c, 'M-18 -13 C-19 -20 -12 -23 -4 -20.5 L8 -17 C13 -15 13 -8.5 7.5 -7.5 L-10 -8.2 C-15.5 -8.4 -17.8 -10.6 -18 -13Z', sv,
+    Ln(c, 'M-14 -18 C-8 -21 0 -20 6 -17', '#ffffff', 1.4, 0.9, 0.4) + Ln(c, 'M-4 -21 L-3 -8', '#1e2028', 1, 0.6));
+  return s;
+}
+
 // A small brass lantern hanging from a ring at (0,0); lit makes it glow.
 function lantern(c, on, k = 1) {
   const brass = '#b8862e';
@@ -503,15 +526,15 @@ function merchant(frame) {
 
   // trousers and boots
   const legs = [
-    'M186 466 C184 510 186 560 190 598 L236 598 C238 560 240 510 240 466Z',
-    'M240 466 C240 510 242 560 244 598 L290 598 C294 560 296 510 294 466Z',
+    'M180 440 C178 490 184 550 190 598 L236 598 C238 550 241 490 241 440Z',
+    'M239 440 C239 490 242 550 244 598 L290 598 C296 550 302 490 300 440Z',
   ];
   legs.forEach((d, i) => {
     const x = i ? 268 : 212;
     s += part(c, d, cyl(c, blue, [0, 0, 1, 0.1]),
-      E(c, x, 470, 34, 22, DEEP, 0.75, 7) +
-      fold(`M${x - 14} 540 q 10 8 24 2 M${x - 16} 566 q 12 7 26 -1`, 3, 0.5, 1.6) +
-      fold(`M${x - 12} 545 q 10 6 22 1`, 1.4, 0.35, 0.8, lit(blue, 0.6)));
+      E(c, x, 494, 40, 22, DEEP, 0.75, 7) +
+      fold(`M${x - 16} 530 q 12 8 28 2 M${x - 16} 556 q 12 7 26 -1 M${x - 14} 580 q 10 5 24 0`, 3, 0.5, 1.6) +
+      fold(`M${x - 14} 535 q 10 6 24 1`, 1.4, 0.35, 0.8, lit(blue, 0.6)) + E(c, x - 10, 540, 6, 30, lit(blue, 0.4), 0.35, 5));
   });
   const boots = [
     'M186 584 L238 584 C240 600 241 614 242 624 C243 634 238 640 228 640 L176 640 C166 640 162 633 167 625 C174 615 182 604 186 584Z',
@@ -523,7 +546,7 @@ function merchant(frame) {
       E(c, x - 6 + i * 14, 624, 18, 7, lit(boot, 0.55), 0.55, 4) +
       E(c, x, 638, 48, 4, DEEP, 0.8, 1.5) +
       fold(`M${x - 22} 608 q 22 6 44 0`, 2, 0.45, 1.2));
-    s += part(c, `M${x - 30} 576 L${x + 30} 576 L${x + 29} 598 C${x + 10} 602 ${x - 10} 602 ${x - 29} 598Z`, cyl(c, lit(boot, 0.1), [0, 0, 1, 0.3]),
+    s += part(c, `M${x - 30} 578 C${x - 20} 570 ${x + 20} 570 ${x + 30} 578 L${x + 28} 598 C${x + 10} 604 ${x - 10} 604 ${x - 28} 598Z`, cyl(c, lit(boot, 0.1), [0, 0, 1, 0.3]),
       Ln(c, `M${x - 28} 579 L${x + 28} 579`, lit(boot, 0.5), 1.4, 0.5) + E(c, x, 598, 30, 4, DEEP, 0.5, 2));
   });
 
@@ -549,16 +572,16 @@ function merchant(frame) {
   s += Ln(c, 'M120 312 C130 312 140 310 148 308', '#c8b088', 4) + Ln(c, 'M360 312 C350 312 340 310 332 308', '#a08868', 4);
 
   // apron
-  const apron = 'M200 200 C214 197 266 197 280 200 C282 230 284 262 290 288 C322 296 346 318 352 352 C358 400 356 462 346 506 C343 516 332 520 318 520 C270 524 210 524 162 520 C148 520 137 516 134 506 C124 462 122 400 128 352 C134 318 158 296 190 288 C196 262 198 230 200 200Z';
+  const apron = 'M200 200 C214 197 266 197 280 200 C282 230 284 262 290 288 C322 296 346 318 352 352 C358 394 354 440 342 482 C338 492 328 496 314 496 C270 500 210 500 166 496 C152 496 142 492 138 482 C126 440 122 394 128 352 C134 318 158 296 190 288 C196 262 198 230 200 200Z';
   let ash = '';
   ash += E(c, 196, 352, 60, 74, lit(leather, 0.6), 0.45, 18);
   ash += E(c, 172, 250, 20, 50, lit(leather, 0.4), 0.3, 10);
   ash += E(c, 342, 400, 34, 120, DEEP, 0.55, 16);
-  ash += E(c, 240, 478, 120, 18, DEEP, 0.4, 9);
+  ash += E(c, 240, 462, 120, 16, DEEP, 0.4, 9);
   ash += E(c, 240, 293, 56, 9, DEEP, 0.5, 5);
   ash += Ln(c, 'M194 300 C214 310 266 310 286 300', lit(leather, 0.55), 2, 0.45, 1.5);
-  ash += fold('M156 466 C164 486 170 504 172 522 M306 466 C312 486 310 504 312 522 M232 486 L230 522', 4, 0.45, 3);
-  ash += fold('M160 470 C167 488 172 506 174 522', 1.5, 0.3, 1, lit(leather, 0.6));
+  ash += fold('M158 444 C164 464 170 482 172 500 M304 444 C310 464 308 482 310 500 M232 466 L230 500', 4, 0.45, 3);
+  ash += fold('M162 448 C167 466 172 484 174 500', 1.5, 0.3, 1, lit(leather, 0.6));
   for (let i = 0; i < 26; i++) {
     const x = 145 + ((i * 53) % 190);
     const y = 220 + ((i * 97) % 290);
@@ -566,7 +589,7 @@ function merchant(frame) {
   }
   const stitch = (d) => Ln(c, d, '#e2c294', 1.2, 0.6, 0, ' stroke-dasharray="4 3"');
   ash += stitch('M204 206 C203 236 201 262 196 290 M276 206 C277 236 279 262 284 290');
-  ash += stitch('M140 504 C130 462 128 404 134 354 M340 504 C350 462 352 404 346 354 M166 514 C210 518 270 518 314 514');
+  ash += stitch('M143 480 C131 440 128 400 134 354 M337 480 C349 440 352 400 346 354 M168 490 C210 494 270 494 312 490');
   s += part(c, apron, flat(c, leather, [0, 0, 1, 0.8]), ash);
   // straps and rivets
   s += part(c, 'M200 202 L210 201 L226 160 L215 157Z', cyl(c, leather, [0, 0, 1, 0]));
@@ -696,7 +719,7 @@ function merchant(frame) {
     for (const [d, w] of fing) s += Ln(c, d, dk(skin, 0.45), w + 1.4) + Ln(c, d, skin, w) + Ln(c, d, lit(skin, 0.45), w * 0.3, 0.6, 0.6);
     s += Ln(c, 'M276 312 C264 305 252 304 242 309', dk(skin, 0.35), 10) + Ln(c, 'M276 312 C264 305 252 304 242 309', lit(skin, 0.1), 8.4);
   }
-  const over = g ? glint(94, 60, 20) + glint(130, 84, 8, '#fff6d8', 0.8) : '';
+  const over = g ? glint(95, 61, 15) + glint(128, 86, 6, '#fff6d8', 0.8) : '';
   return wrap(c, s, { over });
 }
 
@@ -1093,7 +1116,7 @@ function pilgrim(frame) {
   fs.push(beardLocks(c, { cx, y0: by + 38, y1: by + 84, w: 30, n: 10, seed: 2, taper: 0.6, short: 0.25, drop: -44, cols: ['#dedad6', '#9a96a0', '#46424e'] }));
   fs.push(part(c, `M${cx} ${by + 25} C${cx - 8} ${by + 21} ${cx - 20} ${by + 22} ${cx - 26} ${by + 31} C${cx - 29} ${by + 38} ${cx - 28} ${by + 47} ${cx - 25} ${by + 54} C${cx - 22} ${by + 44} ${cx - 15} ${by + 35} ${cx - 6} ${by + 33} L${cx} ${by + 31} L${cx + 6} ${by + 33} C${cx + 15} ${by + 35} ${cx + 22} ${by + 44} ${cx + 25} ${by + 54} C${cx + 28} ${by + 47} ${cx + 29} ${by + 38} ${cx + 26} ${by + 31} C${cx + 20} ${by + 22} ${cx + 8} ${by + 21} ${cx} ${by + 25}Z`,
     L(c, [0, 0, 0.5, 1], [[0, '#e8e4e0'], [1, '#6a6670']]), Ln(c, `M${cx - 4} ${by + 27} C${cx - 12} ${by + 27} ${cx - 20} ${by + 32} ${cx - 23} ${by + 44} M${cx + 4} ${by + 27} C${cx + 12} ${by + 27} ${cx + 20} ${by + 32} ${cx + 23} ${by + 44}`, '#ffffff', 1, 0.5)));
-  s += `<g clip-path="${clipD(c, open)}">${fs.join('')}${E(c, cx, 104, 56, 42, '#120806', 0.8, 10)}${E(c, cx + 34, 150, 14, 70, '#120806', 0.6, 8)}${Ln(c, open, '#120806', 16, 0.65, 6)}</g>`;
+  s += `<g clip-path="${clipD(c, open)}">${fs.join('')}${E(c, cx, 100, 56, 38, '#120806', 0.68, 10)}${E(c, cx + 34, 150, 14, 70, '#120806', 0.6, 8)}${Ln(c, open, '#120806', 16, 0.65, 6)}</g>`;
   s += `<circle cx="${cx - 15.6}" cy="132.4" r="1.3" fill="#fff6e0" opacity="0.9"/><circle cx="${cx + 12.6}" cy="132.4" r="1.1" fill="#fff6e0" opacity="0.75"/>`;
   s += Ln(c, `M${cx - 30} 86 C${cx - 42} 100 ${cx - 46} 124 ${cx - 46} 150`, lit(cloak, 0.6), 3, 0.6, 1.5);
 
@@ -1350,11 +1373,15 @@ function sellsword(frame) {
   s += part(c, 'M156 420 L324 420 L330 464 C290 472 190 472 150 464Z', cyl(c, '#8a6a48', [0, 0, 1, 0.2]),
     fold('M180 428 L178 466 M210 430 L210 470 M240 430 L240 470 M270 430 L270 470 M300 428 L302 466', 2.4, 0.5, 1));
   // mail hauberk
-  const hauberk = 'M206 166 C184 168 164 174 152 186 C140 200 138 222 140 248 C142 290 150 320 160 340 C154 380 150 420 148 452 L232 456 L240 432 L248 456 L332 452 C330 420 326 380 320 340 C330 320 338 290 340 248 C342 222 340 200 328 186 C316 174 296 168 274 166Z';
+  const hauberk = 'M206 166 C184 168 162 174 150 188 C138 204 136 228 140 254 C144 286 150 314 158 334 C160 342 156 352 152 364 C148 392 146 424 144 452 L232 456 L240 432 L248 456 L336 452 C334 424 332 392 328 364 C324 352 320 342 322 334 C330 314 336 286 340 254 C344 228 342 204 330 188 C318 174 296 168 274 166Z';
   s += part(c, hauberk, mail,
-    `<rect x="130" y="160" width="220" height="300" fill="${overShade(c)}"/>` +
-    E(c, 196, 230, 40, 40, '#e8f0ff', 0.18, 10) + E(c, 240, 452, 100, 14, DEEP, 0.5, 6) +
-    fold('M180 380 C176 410 172 432 170 452 M300 380 C304 410 308 432 310 452', 6, 0.5, 4) +
+    `<rect x="130" y="160" width="220" height="300" fill="${overShade(c, [0, 0, 1, 0.3], 1.25)}"/>` +
+    E(c, 196, 236, 34, 30, '#e8f0ff', 0.22, 10) + E(c, 262, 240, 22, 26, '#e8f0ff', 0.1, 10) +
+    E(c, 240, 300, 80, 10, DEEP, 0.4, 8) + E(c, 240, 452, 100, 14, DEEP, 0.55, 6) +
+    fold('M164 322 C190 334 290 334 316 322', 9, 0.45, 5) + fold('M166 312 C192 322 288 322 314 312', 3, 0.3, 2, '#e8f0ff') +
+    fold('M180 380 C176 410 172 432 170 452 M300 380 C304 410 308 432 310 452 M210 372 C208 400 206 430 206 452', 7, 0.5, 4) +
+    fold('M172 384 C168 410 165 432 163 450 M292 384 C296 410 300 432 302 450', 3, 0.3, 2, '#e8f0ff') +
+    E(c, 330, 260, 16, 90, DEEP, 0.45, 10) + E(c, 150, 250, 10, 60, DEEP, 0.3, 8) +
     Ln(c, 'M150 448 L232 452 L240 430 L248 452 L330 448', '#e0e4ec', 1.4, 0.4));
   // leather collar
   s += part(c, 'M206 162 C214 180 266 180 274 162 L284 170 C272 196 208 196 196 170Z', cyl(c, leather, [0, 0, 1, 0]),
@@ -1420,7 +1447,610 @@ function sellsword(frame) {
     for (const [y, x2] of [[230, 296], [240, 297], [250, 295]]) s += Ln(c, `M262 ${y} C272 ${y - 3} ${x2 - 12} ${y - 3} ${x2} ${y}`, dk(skin, 0.45), 1.4, 0.7, 0.5);
     s += Ln(c, 'M262 230 C264 220 272 216 282 218', dk(skin, 0.4), 9.4) + Ln(c, 'M262 230 C264 220 272 216 282 218', lit(skin, 0.15), 8) + Ln(c, 'M264 225 C266 220 272 218 278 219', lit(skin, 0.6), 2, 0.6, 0.5);
   }
+  // layered leather spaulder on the spear-arm shoulder, with a buckled strap
+  const sp0 = s;
+  s = '';
+  for (let i = 2; i >= 0; i--) {
+    const y = 186 + i * 16;
+    s += part(c, `M${118 + i * 2} ${y + 10} C${122 + i * 2} ${y - 10} ${150} ${y - 18} ${178 - i * 2} ${y - 8} L${180 - i * 2} ${y + 10} C${160} ${y + 6} ${136} ${y + 12} ${120 + i * 2} ${y + 22}Z`,
+      cyl(c, i ? dk(leather, 0.1 * i) : leather, [0, 0, 1, 0.5]),
+      Ln(c, `M${122 + i * 2} ${y + 14} C${138} ${y + 6} ${160} ${y + 2} ${178 - i * 2} ${y + 4}`, '#d8b080', 1, 0.55, 0, ' stroke-dasharray="3 3"') + E(c, 140, y + 14, 20, 4, DEEP, 0.5, 2));
+  }
+  s += part(c, 'M120 192 C122 170 150 160 182 170 L184 182 C160 176 136 182 124 204Z', cyl(c, lit(leather, 0.15), [0, 0, 1, 0.5]), E(c, 142, 176, 16, 5, lit(leather, 0.6), 0.5, 3));
+  s += E(c, 150, 196, 3, 3, ball(c, '#b0b4be')) + E(c, 128, 210, 3, 3, ball(c, '#b0b4be'));
+  s = sp0 + G(g ? 'translate(18 -4) rotate(-8 150 200)' : 'translate(10 0)', s);
   return wrap(c, s);
+}
+
+
+// ================================================================ vael
+// Polished plate: reflections of a dusk sky above, a dark horizon band and
+// warm ground below, a cool rim at the right edge.
+function plate(c, v = [0, 0, 1, 0], k = 0) {
+  return L(c, v, [
+    [0, '#3a4052'], [0.08, mix('#c6cde4', '#a8b2c2', k)], [0.18, '#f6f8fd'], [0.3, '#b2bad0'], [0.46, '#5e6578'],
+    [0.6, '#282a3a'], [0.74, '#6c7082'], [0.88, '#caa890'], [0.95, '#7c7686'], [1, '#a9c2e6'],
+  ]);
+}
+function dome(c, f = [0.32, 0.26]) {
+  return R(c, [0.5, 0.5, 0.62, f[0], f[1]], [
+    [0, '#ffffff'], [0.1, '#eef0fa'], [0.3, '#a4aac2'], [0.55, '#525870'], [0.75, '#28293a'], [0.88, '#8a7880'], [1, '#aabfe0'],
+  ]);
+}
+function gilt(c, v = [0, 0, 0, 1]) {
+  return L(c, v, [[0, '#fff2b0'], [0.35, '#e8b844'], [0.7, '#a8741c'], [1, '#5a3a0a']]);
+}
+// A specular streak (drawn inside a clip).
+const spec = (c, d, w = 3, op = 0.85, b = 1.2) => Ln(c, d, '#ffffff', w, op, b);
+
+// Eight-pointed white star with fine rays, centred on (0,0), radius r.
+function starDevice(c, r) {
+  let pts = [];
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2 - Math.PI / 2;
+    const rr = i % 2 ? r * 0.36 : i % 4 ? r * 0.7 : r;
+    pts.push([Math.cos(a) * rr, Math.sin(a) * rr]);
+  }
+  let s = part(c, `${polyD(pts)}Z`, R(c, [0.5, 0.5, 0.6, 0.38, 0.32], [[0, '#ffffff'], [0.6, '#eef2fa'], [1, '#b8c6e0']]),
+    S(c, `M0 0 ${pts.slice(4, 13).map((p) => `L${f2(p[0])} ${f2(p[1])}`).join(' ')}Z`, '#8a9cc4', 0.35, 1));
+  s += `<circle r="${f2(r * 0.16)}" fill="${R(c, [0.5, 0.5, 0.5, 0.35, 0.3], [[0, '#ffffff'], [1, '#c8d4ea']])}"/>`;
+  return s;
+}
+// Six-armed snowflake, centred on (0,0), radius r.
+function snowflake(c, r) {
+  let d = '';
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+    const ca = Math.cos(a);
+    const sa = Math.sin(a);
+    const P2 = (u, v) => `${f2(ca * u - sa * v)} ${f2(sa * u + ca * v)}`;
+    d += `M0 0 L${P2(r, 0)} `;
+    for (const [u, l] of [[0.42, 0.26], [0.68, 0.2]]) d += `M${P2(r * u, 0)} L${P2(r * (u + l * 0.8), r * l)} M${P2(r * u, 0)} L${P2(r * (u + l * 0.8), -r * l)} `;
+  }
+  let s = Ln(c, d, '#c4d2ec', r * 0.13);
+  s += Ln(c, d, '#ffffff', r * 0.085);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
+    s += `<circle cx="${f2(Math.cos(a) * r)}" cy="${f2(Math.sin(a) * r)}" r="${f2(r * 0.07)}" fill="#ffffff"/>`;
+  }
+  s += `<circle r="${f2(r * 0.14)}" fill="#ffffff"/>` + `<circle r="${f2(r * 0.07)}" fill="#c4d2ec"/>`;
+  return s;
+}
+
+function vael(frame) {
+  const c = ctx('vael', frame, 560, 800);
+  const g = frame === 'attack';
+  const az = '#2a60c0';
+  const azD = '#163676';
+  const fold = (d, w = 5, op = 0.45, b = 3.4, col = DEEP) => Ln(c, d, col, w, op, b);
+  const ao = (d, w = 6, op = 0.55, b = 3) => Ln(c, d, '#0e0c14', w, op, b);
+  let s = '';
+  const cx = 272;
+
+  // ---------------- lance (behind the arm)
+  const lanceX = 102;
+  const lance = (top, bot, grip) => {
+    let t = '';
+    const shaft = `M${lanceX - 7.5} ${bot} L${lanceX - 5} ${top + 40} L${lanceX + 5} ${top + 40} L${lanceX + 7.5} ${bot}Z`;
+    let stripes = '';
+    for (let y = top + 20; y < bot + 40; y += 30) stripes += `M${lanceX - 12} ${y} L${lanceX + 12} ${y - 16} L${lanceX + 12} ${y - 2} L${lanceX - 12} ${y + 14}Z `;
+    t += part(c, shaft, '#f2f4f8', S(c, stripes, az) + `<rect x="${lanceX - 9}" y="${top}" width="18" height="${bot - top}" fill="${L(c, [0, 0, 1, 0], [[0, DEEP, 0.4], [0.25, '#ffffff', 0.35], [0.45, '#ffffff', 0], [0.7, DEEP, 0.35], [0.92, DEEP, 0.6], [1, RIM, 0.4]])}"/>`);
+    // tip
+    t += part(c, `M${lanceX} ${top} C${lanceX + 6} ${top + 14} ${lanceX + 8} ${top + 30} ${lanceX + 6} ${top + 42} L${lanceX - 6} ${top + 42} C${lanceX - 8} ${top + 30} ${lanceX - 6} ${top + 14} ${lanceX} ${top}Z`, plate(c), spec(c, `M${lanceX - 2} ${top + 8} L${lanceX - 3} ${top + 38}`, 1.6));
+    t += part(c, `M${lanceX - 8} ${top + 42} L${lanceX + 8} ${top + 42} L${lanceX + 6} ${top + 52} L${lanceX - 6} ${top + 52}Z`, gilt(c, [0, 0, 1, 0]));
+    // pennant, swallow-tailed, flying to the right
+    const py = top + 60;
+    const pen = `M${lanceX + 5} ${py} C${lanceX + 40} ${py - 6} ${lanceX + 70} ${py + 4} ${lanceX + 104} ${py - 2} L${lanceX + 82} ${py + 22} L${lanceX + 100} ${py + 44} C${lanceX + 66} ${py + 42} ${lanceX + 36} ${py + 52} ${lanceX + 5} ${py + 48}Z`;
+    t += part(c, pen, L(c, [0, 0, 1, 0.3], [[0, lit(az, 0.25)], [0.5, az], [1, azD]]),
+      fold(`M${lanceX + 30} ${py + 2} C${lanceX + 34} ${py + 20} ${lanceX + 32} ${py + 34} ${lanceX + 36} ${py + 48} M${lanceX + 62} ${py + 2} C${lanceX + 66} ${py + 18} ${lanceX + 62} ${py + 34} ${lanceX + 66} ${py + 46}`, 6, 0.5, 3) +
+      Ln(c, `M${lanceX + 14} ${py + 4} C${lanceX + 18} ${py + 20} ${lanceX + 16} ${py + 32} ${lanceX + 18} ${py + 46}`, '#ffffff', 3, 0.3, 2) +
+      G(`translate(${lanceX + 40} ${py + 24})`, starDevice(c, 11)));
+    // vamplate above the hand
+    const vy = grip - 22;
+    t += part(c, `M${lanceX - 9} ${vy} L${lanceX + 9} ${vy} L${lanceX + 34} ${vy - 46} L${lanceX - 34} ${vy - 46}Z`, plate(c, [0, 0, 1, 0]),
+      spec(c, `M${lanceX - 20} ${vy - 40} L${lanceX - 6} ${vy - 4}`, 2.4) + ao(`M${lanceX - 32} ${vy - 44} L${lanceX + 32} ${vy - 44}`, 3, 0.4));
+    t += `<ellipse cx="${lanceX}" cy="${vy - 46}" rx="34" ry="8" fill="${plate(c, [0, 0, 1, 0])}"/>` + `<ellipse cx="${lanceX}" cy="${vy - 46}" rx="27" ry="5" fill="#1e2028"/>`;
+    t += part(c, `M${lanceX - 8} ${bot - 14} L${lanceX + 8} ${bot - 14} L${lanceX + 7} ${bot} L${lanceX - 7} ${bot}Z`, plate(c));
+    return t;
+  };
+  s += g ? lance(14, 742, 352) : lance(52, 800, 452);
+
+  // ---------------- plume, swept up and back, with feathery barbs
+  const sweep = [[cx + 2, 136], [cx - 8, 100], [cx + 2, 64], [cx + 48, 40], [cx + 110, 46], [cx + 154, 84], [cx + 174, 132], [cx + 180, 178]];
+  const plumeLayer = (off, wmax, cols, barbCol, seed) => {
+    const pts = sweep.map(([x, y], i) => [x + off[0] * Math.min(1, i / 2), y + off[1] * Math.min(1, i / 2)]);
+    const wf = (t) => wmax * (0.3 + 0.95 * Math.sin(Math.PI * Math.min(1, t * 1.1)) ** 0.55) * (1 - t * 0.6);
+    const d = ribbon(pts, wf, 10);
+    const cl = spline(pts, 10);
+    let barbs = '';
+    for (let i = 3; i < cl.length - 1; i++) {
+      const t = i / (cl.length - 1);
+      const [x, y] = cl[i];
+      const [x2, y2] = cl[i + 1];
+      const a = Math.atan2(y2 - y, x2 - x);
+      const tx = Math.cos(a);
+      const ty = Math.sin(a);
+      const nx = -ty;
+      const ny = tx;
+      const hw = wf(t) / 2;
+      for (const sd of [-1, 1]) {
+        const ext = hw + 5 + 5 * Math.abs(Math.sin(i * seed));
+        const sx = x + nx * sd * hw * 0.2;
+        const sy = y + ny * sd * hw * 0.2;
+        const ex = x + nx * sd * ext - tx * (10 + 6 * t);
+        const ey = y + ny * sd * ext - ty * (10 + 6 * t);
+        const qx = x + nx * sd * hw * 0.9 + tx * 2;
+        const qy = y + ny * sd * hw * 0.9 + ty * 2;
+        barbs += `M${f2(sx)} ${f2(sy)} Q${f2(qx)} ${f2(qy)} ${f2(ex)} ${f2(ey)} `;
+      }
+    }
+    let t = '';
+    t += Ln(c, barbs, barbCol, 2.4);
+    t += part(c, d, L(c, [0, 0, 1, 1], [[0, cols[2]], [0.45, cols[1]], [1, cols[0]]]),
+      Ln(c, barbs, cols[2], 1, 0.5) + Ln(c, polyD(cl), cols[0], 1.2, 0.5) + E(c, cx + 160, 120, 40, 60, DEEP, 0.35, 12));
+    return t;
+  };
+  s += plumeLayer([14, 12], 40, ['#163e8e', az, '#4a7cd8'], '#1e4ea8', 1.7);
+  s += plumeLayer([6, 4], 36, ['#b8c6e2', '#f4f6fb', '#ffffff'], '#e4eaf6', 2.3);
+  s += plumeLayer([-2, -4], 22, ['#1c4aa4', '#3a74d4', '#7aa6ee'], '#3a74d4', 3.1);
+  s += plumeLayer([-8, -10], 14, ['#d0dbef', '#ffffff', '#ffffff'], '#ffffff', 1.3);
+
+  // ---------------- legs
+  const leg = (x, side) => {
+    let t = '';
+    // cuisse with a rolled lower edge
+    t += part(c, `M${x - 30} 590 L${x + 30} 590 L${x + 28} 664 L${x - 28} 664Z`, plate(c),
+      spec(c, `M${x - 16} 596 L${x - 15} 660`, 3) + Ln(c, `M${x - 28} 646 L${x + 28} 646`, '#22252e', 2, 0.6) + Ln(c, `M${x - 28} 648.5 L${x + 28} 648.5`, '#ffffff', 1, 0.4));
+    // greave with a shin ridge
+    const gr = `M${x - 26} 690 C${x - 28} 720 ${x - 24} 748 ${x - 20} 774 L${x + 20} 774 C${x + 24} 748 ${x + 28} 720 ${x + 26} 690Z`;
+    t += part(c, gr, plate(c),
+      spec(c, `M${x - 13} 700 C${x - 14} 724 ${x - 12} 748 ${x - 10} 768`, 3.4) + ao(`M${x - 26} 694 L${x + 26} 694`, 6, 0.5) +
+      Ln(c, `M${x - 2} 700 L${x - 2} 772`, '#ffffff', 1.4, 0.5, 0.6) + Ln(c, `M${x + 1} 700 L${x + 1} 772`, '#262a34', 1.4, 0.45, 0.6) +
+      E(c, x, 770, 24, 4, DEEP, 0.5, 2));
+    // poleyn with its side wing
+    t += part(c, `M${x + side * 22} 660 C${x + side * 46} 654 ${x + side * 52} 680 ${x + side * 40} 694 C${x + side * 32} 690 ${x + side * 26} 682 ${x + side * 22} 676Z`, dome(c, side < 0 ? [0.3, 0.3] : [0.6, 0.3]));
+    t += part(c, `M${x - 26} 668 C${x - 26} 650 ${x - 12} 640 ${x} 640 C${x + 12} 640 ${x + 26} 650 ${x + 26} 668 C${x + 26} 686 ${x + 12} 700 ${x} 700 C${x - 12} 700 ${x - 26} 686 ${x - 26} 668Z`, dome(c),
+      Ln(c, `M${x - 24} 676 C${x - 12} 684 ${x + 12} 684 ${x + 24} 676`, '#2a2e3a', 2, 0.6));
+    t += E(c, x, 668, 4, 4, gilt(c));
+    // sabaton: three lames widening to a pointed toe, turned a little outward
+    const tx = x + side * 7;
+    const sab = `M${x - 21} 770 L${x + 21} 770 C${x + 26} 778 ${x + 29} 786 ${x + 27 + side * 3} 793 C${tx + 16} 798 ${tx + 6} 800 ${tx} 800 C${tx - 6} 800 ${tx - 16} 798 ${x - 27 + side * 3} 793 C${x - 29} 786 ${x - 26} 778 ${x - 21} 770Z`;
+    t += part(c, sab, dome(c, [0.35, 0.2]),
+      Ln(c, `M${x - 24} 778 C${x - 10} 782 ${x + 10} 782 ${x + 24} 778 M${x - 27} 787 C${x - 10} 791 ${x + 10} 791 ${x + 27} 787`, '#1e2028', 1.8, 0.75) +
+      spec(c, `M${x - 14} 774 C${x - 8} 776 ${x - 2} 776 ${x + 4} 775`, 1.8));
+    return t;
+  };
+  s += leg(226, -1) + leg(320, 1);
+  // fauld between the skirts
+  s += part(c, 'M246 424 L300 424 L304 600 L242 600Z', plate(c), Ln(c, 'M244 460 L302 460 M244 500 L302 500 M243 540 L303 540 M243 580 L303 580', '#20232c', 2.4, 0.8) + spec(c, 'M252 430 L250 596', 3));
+
+  // ---------------- surcoat
+  const torso = 'M222 262 C200 266 186 278 182 296 C176 334 178 382 188 426 L356 426 C366 382 368 334 362 296 C358 278 344 266 322 262Z';
+  s += part(c, torso, L(c, [0, 0, 1, 0.3], [[0, lit(az, 0.15)], [0.22, lit(az, 0.3)], [0.5, az], [0.8, azD], [1, '#3a5a9a']]),
+    E(c, 210, 320, 30, 60, lit(az, 0.6), 0.35, 14) + E(c, 350, 360, 20, 80, DEEP, 0.5, 10) + fold('M300 300 C306 340 308 380 304 420', 6, 0.35, 5));
+  s += G(`translate(${cx} 336)`, starDevice(c, 42));
+  const skirtL = 'M188 424 L250 424 L246 612 C222 620 196 618 168 608Z';
+  const skirtR = 'M296 424 L356 424 L378 608 C350 618 324 620 300 612Z';
+  const skirtSh = (x0, x1, dir) => fold(`M${x0 + 18} 440 C${x0 + 14} 500 ${x0 + 8 * dir} 560 ${x0 + 4 * dir} 612 M${x1 - 18} 440 C${x1 - 16} 500 ${x1 - 14} 560 ${x1 - 12} 612`, 9, 0.45, 5) +
+    Ln(c, `M${x0 + 8} 440 C${x0 + 4} 500 ${x0 - 2 * dir} 560 ${x0 - 6 * dir} 610`, lit(az, 0.6), 4, 0.35, 3);
+  s += part(c, skirtL, L(c, [0, 0, 1, 0], [[0, lit(az, 0.25)], [0.5, az], [1, azD]]), skirtSh(188, 250, 1) + Ln(c, 'M170 602 C196 612 222 614 246 606', '#e8b844', 5) + Ln(c, 'M170 597 C196 607 222 609 246 601', '#fff2b0', 1.2, 0.7));
+  s += part(c, skirtR, L(c, [0, 0, 1, 0], [[0, az], [0.5, azD], [1, '#122a5c']]), skirtSh(296, 356, -1) + Ln(c, 'M300 606 C324 614 350 612 376 602', '#c89a34', 5) + E(c, 360, 520, 20, 90, DEEP, 0.45, 10));
+  s += ao('M250 426 L246 612 M296 426 L300 612', 4, 0.5, 2);
+  // belt
+  s += part(c, 'M184 416 C220 424 324 424 360 416 L362 438 C324 446 220 446 182 438Z', L(c, [0, 0, 0, 1], [[0, '#4a2a1a'], [1, '#1e120c']]));
+  for (let x = 196; x <= 348; x += 22) s += `<rect x="${x - 6}" y="420" width="12" height="16" rx="2" fill="${gilt(c)}"/>`;
+  s += part(c, `M${cx - 14} 414 L${cx + 14} 414 L${cx + 14} 442 L${cx - 14} 442Z`, gilt(c), `<rect x="${cx - 8}" y="420" width="16" height="16" fill="#3a2410"/>` + E(c, cx, 428, 4, 4, '#ff5040'));
+
+  // ---------------- gorget and pauldrons
+  s += part(c, `M${cx - 44} 236 C${cx - 30} 244 ${cx + 30} 244 ${cx + 44} 236 L${cx + 50} 272 C${cx + 30} 284 ${cx - 30} 284 ${cx - 50} 272Z`, plate(c),
+    Ln(c, `M${cx - 46} 250 C${cx - 30} 260 ${cx + 30} 260 ${cx + 46} 250 M${cx - 48} 262 C${cx - 30} 272 ${cx + 30} 272 ${cx + 48} 262`, '#20232c', 2, 0.8) +
+    spec(c, `M${cx - 30} 246 C${cx - 20} 252 ${cx - 6} 254 ${cx + 6} 254`, 2.4));
+  const pauldron = (x, side) => {
+    let t = '';
+    for (let i = 3; i >= 1; i--) {
+      const y = 316 + i * 15;
+      t += part(c, `M${x - 44} ${y - 14} C${x - 30} ${y - 6} ${x + 30} ${y - 6} ${x + 44} ${y - 14} L${x + 42} ${y + 4} C${x + 28} ${y + 12} ${x - 28} ${y + 12} ${x - 42} ${y + 4}Z`, plate(c, [0, 0, 1, 0.2]),
+        ao(`M${x - 42} ${y - 12} C${x - 28} ${y - 4} ${x + 28} ${y - 4} ${x + 42} ${y - 12}`, 5, 0.6) + spec(c, `M${x - 30} ${y - 4} C${x - 20} ${y} ${x - 10} ${y + 1} ${x} ${y + 1}`, 1.8, 0.7) +
+        Ln(c, `M${x - 42} ${y + 2} C${x - 28} ${y + 10} ${x + 28} ${y + 10} ${x + 42} ${y + 2}`, '#e8b844', 2.4, 0.9));
+    }
+    const d = `M${x - 52} 330 C${x - 56} 296 ${x - 36} 262 ${x} 258 C${x + 36} 262 ${x + 56} 296 ${x + 52} 330 C${x + 30} 344 ${x - 30} 344 ${x - 52} 330Z`;
+    t += part(c, d, dome(c, side < 0 ? [0.3, 0.28] : [0.4, 0.28]),
+      ao(`M${x - 50} 334 C${x - 30} 346 ${x + 30} 346 ${x + 50} 334`, 6, 0.6) + spec(c, `M${x - 34} 300 C${x - 26} 280 ${x - 12} 270 ${x + 4} 268`, 3.2, 0.9, 1.4));
+    t += Ln(c, `M${x - 52} 330 C${x - 30} 344 ${x + 30} 344 ${x + 52} 330`, '#e8b844', 4) + Ln(c, `M${x - 50} 328 C${x - 30} 341 ${x + 30} 341 ${x + 50} 328`, '#fff2b0', 1.1, 0.8);
+    for (const dx of [-36, 0, 36]) t += E(c, x + dx, 334 + (dx ? -2 : 4), 3, 3, gilt(c));
+    return t;
+  };
+
+  // ---------------- lance arm (viewer's left)
+  const arm = () => {
+    let t = '';
+    if (!g) {
+      t += part(c, 'M150 326 C164 320 184 320 198 326 L192 408 C178 412 162 412 148 408Z', plate(c), spec(c, 'M160 332 L157 404', 3) + ao('M150 330 L198 330', 6, 0.5) + Ln(c, 'M149 372 C164 377 180 377 195 372', '#1e2028', 2, 0.7) + Ln(c, 'M149 375 C164 380 180 380 195 375', '#ffffff', 1, 0.45));
+      t += part(c, 'M150 424 C140 436 128 446 116 452 L112 474 C130 470 148 458 162 446Z', plate(c, [0, 0, 0, 1]), spec(c, 'M120 456 C134 452 144 444 152 434', 2.4));
+      t += part(c, 'M142 418 C154 400 180 400 192 416 C200 434 190 452 170 456 C152 458 138 444 142 418Z', dome(c), ao('M146 444 C156 454 174 456 188 446', 4, 0.5));
+      t += part(c, 'M146 418 C130 404 124 386 132 374 C146 384 156 398 160 414Z', dome(c, [0.3, 0.4]));
+      t += E(c, 168, 428, 4, 4, gilt(c));
+      t += part(c, 'M130 444 C126 456 124 466 126 476 L104 478 C100 466 102 452 108 444Z', plate(c, [0, 0, 1, 1]));
+      t += G(`translate(${lanceX} 456) scale(1.25)`, gauntletGrip(c, 30));
+    } else {
+      t += part(c, 'M150 326 C164 320 184 320 198 326 L190 390 C176 396 160 396 148 392Z', plate(c), spec(c, 'M160 332 L157 388', 3) + ao('M150 330 L198 330', 6, 0.5) + Ln(c, 'M149 362 C164 367 180 367 194 362', '#1e2028', 2, 0.7) + Ln(c, 'M149 365 C164 370 180 370 194 365', '#ffffff', 1, 0.45));
+      t += part(c, 'M150 384 C140 372 128 364 116 360 L110 340 C130 340 150 350 166 368Z', plate(c, [0, 0, 1, 1]), spec(c, 'M118 348 C132 350 146 358 156 368', 2.4));
+      t += part(c, 'M140 392 C150 374 176 372 192 386 C202 404 192 424 172 428 C152 430 136 418 140 392Z', dome(c), ao('M144 416 C156 428 176 430 190 420', 4, 0.5));
+      t += part(c, 'M146 392 C128 380 122 362 128 350 C142 360 154 374 160 388Z', dome(c, [0.3, 0.4]));
+      t += E(c, 168, 400, 4, 4, gilt(c));
+      t += part(c, 'M124 366 C118 356 116 344 120 336 L102 330 C96 340 96 356 102 366Z', plate(c, [0, 0, 1, 1]));
+      t += G(`translate(${lanceX} 354) scale(1.25)`, gauntletGrip(c, 50));
+    }
+    return t;
+  };
+
+  // ---------------- kite shield on the far arm
+  const shield = () => {
+    const d = 'M362 296 C400 286 460 286 498 296 C506 380 494 470 470 540 C456 584 440 624 430 668 C418 624 400 584 384 540 C364 470 352 380 362 296Z';
+    const inner = 'M370 304 C404 295 456 295 490 304 C496 382 486 468 462 536 C450 574 438 610 430 646 C422 610 410 574 396 536 C372 468 364 382 370 304Z';
+    let t = '';
+    t += part(c, d, plate(c, [0, 0, 1, 0.3]), spec(c, 'M366 310 C362 380 370 460 390 530', 3, 0.8));
+    t += part(c, inner, R(c, [0.4, 0.3, 0.8, 0.32, 0.2], [[0, '#5a90ee'], [0.35, az], [0.75, azD], [1, '#0c1e44']]),
+      E(c, 400, 350, 30, 50, '#ffffff', 0.18, 14) + E(c, 470, 470, 26, 120, DEEP, 0.55, 16) + G('translate(430 420)', snowflake(c, 52)));
+    for (const [x, y] of [[372, 306], [430, 297], [488, 306], [368, 400], [492, 400], [390, 520], [470, 520]]) t += E(c, x, y, 3, 3, gilt(c));
+    return G('rotate(-3 430 470)', t);
+  };
+
+  s += pauldron(352, 1);
+  s += shield();
+  s += arm();
+  s += pauldron(194, -1);
+
+  // ---------------- helm
+  const hx = cx;
+  const hy = 186;
+  const hs = [];
+  const shell = 'M0 -60 C30 -60 49 -40 49 -8 C49 14 47 36 41 50 C31 62 13 67 0 67 C-13 67 -31 62 -41 50 C-47 36 -49 14 -49 -8 C-49 -40 -30 -60 0 -60Z';
+  if (g) {
+    // visor raised: the face shows in the opening
+    const opening = 'M-31 -16 C-20 -20 20 -20 31 -16 L33 30 C30 46 16 58 0 60 C-16 58 -30 46 -33 30Z';
+    let face2 = '';
+    face2 += `<rect x="-60" y="-40" width="120" height="120" fill="#2a2430"/>`;
+    face2 += G('translate(0 6) scale(0.86)', face(c, {
+      skin: '#d8a080', iris: '#5a7a9c', brow: '#6a4a2a', browW: 1.5, expr: 'stern', age: 0.35, ears: false, jaw: 1.08, square: 0.8, cheek: 1.02, shadow: 0.6,
+      stubble: '#5a3a24',
+    }));
+    // short beard and moustache
+    face2 += S(c, 'M-26 26 C-24 44 -14 56 0 58 C14 56 24 44 26 26 C20 36 12 40 0 40 C-12 40 -20 36 -26 26Z', L(c, [0, 0, 0, 1], [[0, '#7a5434'], [1, '#3a2414']]), 0.95, 0.4);
+    face2 += S(c, 'M0 28 C-6 25 -16 25 -20 31 C-22 35 -21 39 -19 41 C-16 36 -10 33 -4 33 L0 32 L4 33 C10 33 16 36 19 41 C21 39 22 35 20 31 C16 25 6 25 0 28Z', L(c, [0, 0, 0, 1], [[0, '#8a6444'], [1, '#3a2414']]), 1, 0.3);
+    face2 += E(c, 0, -14, 34, 10, '#0e0c14', 0.75, 6) + E(c, 30, 20, 8, 40, '#0e0c14', 0.6, 6) + E(c, -30, 20, 6, 40, '#0e0c14', 0.45, 6);
+    hs.push(`<g clip-path="${clipD(c, opening)}">${face2}</g>`);
+    hs.push(`<path d="${shell} ${opening}" fill-rule="evenodd" fill="${dome(c, [0.34, 0.2])}"/>`);
+    hs.push(`<g clip-path="${clipD(c, shell)}">` +
+      Ln(c, opening, '#1a1c24', 5, 0.7, 2) + Ln(c, 'M-33 -16 L-33 30 C-30 46 -16 58 0 60', '#ffffff', 1.6, 0.45, 0.6) +
+      spec(c, 'M-34 -44 C-24 -54 -10 -58 4 -58', 4, 0.9, 1.6) + E(c, 38, 20, 12, 50, DEEP, 0.4, 8) + '</g>');
+    hs.push('@VISOR@');
+  } else {
+    hs.push(part(c, shell, dome(c, [0.34, 0.24]),
+      E(c, 38, 20, 14, 56, DEEP, 0.45, 8) + spec(c, 'M-34 -44 C-24 -54 -10 -58 4 -58', 4, 0.9, 1.6) +
+      Ln(c, 'M0 -60 L0 66', '#ffffff', 2, 0.35, 0.8) + Ln(c, 'M2 -58 L2 66', '#1a1c24', 1.6, 0.5, 0.6)));
+    // visor with a pointed ridge, eye slit and breaths
+    const visor = 'M-44 -16 C-30 -20 30 -20 44 -16 L45 18 C40 40 22 58 0 64 C-22 58 -40 40 -45 18Z';
+    hs.push(part(c, visor, L(c, [0, 0, 1, 0.2], [[0, '#59616f'], [0.18, '#e9eef6'], [0.42, '#9aa4b4'], [0.5, '#f4f7fb'], [0.56, '#5a6272'], [0.8, '#2c303c'], [0.94, '#8c8a94'], [1, '#a9c2e6']]),
+      Ln(c, 'M0 -16 L0 64', '#ffffff', 2, 0.6, 0.6) + spec(c, 'M-36 -6 C-34 14 -28 32 -16 48', 2.6, 0.7)));
+    hs.push(P('M-38 -8 C-24 -11 24 -11 38 -8 L38 -1 C24 -3 -24 -3 -38 -1Z', '#06070a') + Ln(c, 'M-36 -0.5 C-24 -2 24 -2 36 -0.5', '#9aa4b4', 1, 0.7) + P('M-2 -11 L2 -11 L2 -1 L-2 -1Z', '#3a404c'));
+    for (let i = 0; i < 4; i++) hs.push(P(`M${14 + i * 0} ${16 + i * 8} l16 -3 l0 3 l-16 3Z`, '#06070a') + P(`M${-30} ${13 + i * 8} l16 3 l0 3 l-16 -3Z`, '#06070a'));
+  }
+  // gold circlet with small points
+  const circ = 'M-50 -24 C-30 -32 30 -32 50 -24 L50 -12 C30 -20 -30 -20 -50 -12Z';
+  hs.push(part(c, circ, gilt(c), Ln(c, 'M-50 -22 C-30 -30 30 -30 50 -22', '#fff6c8', 1.2, 0.8) + E(c, 40, -16, 10, 6, DEEP, 0.4, 3)));
+  for (const x of [-36, -12, 12, 36]) hs.push(part(c, `M${x - 6} ${-27 - Math.abs(x) * 0.02} L${x} ${-40} L${x + 6} ${-27}Z`, gilt(c, [0, 0, 1, 1])));
+  for (const x of [-24, 0, 24]) hs.push(E(c, x, -19, 3.2, 3.2, R(c, [0.5, 0.5, 0.5, 0.35, 0.3], [[0, '#c8e0ff'], [0.5, '#3a74d4'], [1, '#10285a']])));
+  // plume socket
+  hs.push(part(c, 'M-7 -74 L7 -74 L6 -58 L-6 -58Z', gilt(c, [0, 0, 1, 0])));
+  let helm = hs.join('');
+  if (g) {
+    // the raised visor rides up over the skull, its slit and breaths showing
+    const vis = 'M-46 -36 C-40 -58 -22 -66 0 -66 C22 -66 40 -58 46 -36 C30 -44 -30 -44 -46 -36Z';
+    let v = part(c, vis, L(c, [0, 0, 0, 1], [[0, '#f4f7fb'], [0.3, '#aab4c4'], [0.6, '#596170'], [1, '#2c303c']]),
+      S(c, 'M-34 -50 C-20 -56 20 -56 34 -50 L33 -46 C20 -52 -20 -52 -33 -46Z', '#06070a') + Ln(c, 'M0 -66 L0 -40', '#ffffff', 1.6, 0.5) +
+      spec(c, 'M-34 -46 C-26 -58 -12 -62 2 -63', 2.4, 0.9) + E(c, 36, -44, 10, 8, DEEP, 0.5, 3));
+    v += E(c, -46, -30, 5, 5, gilt(c)) + E(c, 46, -30, 5, 5, gilt(c));
+    helm = helm.replace('@VISOR@', '') + v + part(c, 'M-7 -78 L7 -78 L6 -62 L-6 -62Z', gilt(c, [0, 0, 1, 0]));
+  }
+  s += G(`translate(${hx} ${hy})`, helm);
+
+  return wrap(c, s, { fx: { kd: 1.24 } });
+}
+
+
+// ================================================================ raven
+// One glossy black feather from base to tip, with a blue-violet sheen.
+function feather(c, x0, y0, x1, y1, w, bend = 0, k = 1) {
+  const mx = (x0 + x1) / 2;
+  const my = (y0 + y1) / 2;
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const l = Math.hypot(dx, dy) || 1;
+  const pts = [[x0, y0], [mx - (dy / l) * bend, my + (dx / l) * bend], [x1, y1]];
+  const d = ribbon(pts, (t) => w * (t < 0.8 ? 0.75 + 0.25 * Math.sin((t / 0.8) * Math.PI * 0.5) : Math.sqrt(Math.max(0, 1 - ((t - 0.8) / 0.2) ** 2))), 8);
+  const sheen = L(c, [0, 0, 1, 1], [[0, '#1e1e34'], [0.35 * k, '#0c0a14'], [0.6, '#1a1838'], [0.74, '#34307a'], [0.84, '#0e0c18'], [1, '#07060b']]);
+  return part(c, d, sheen, Ln(c, polyD(spline(pts, 6)), '#34345a', 0.9, 0.7)) + Ln(c, d, '#5a5ab0', 0.7, 0.3);
+}
+
+function raven(frame) {
+  const c = ctx('raven', frame, 400, 400);
+  const g = frame === 'attack';
+  const black = '#16141e';
+  const bark = '#5e3c24';
+  const fold = (d, w = 4, op = 0.5, b = 3, col = DEEP) => Ln(c, d, col, w, op, b);
+  const glossy = (v = [0, 0, 1, 1]) => L(c, v, [[0, '#262640'], [0.22, '#0e0c16'], [0.5, '#141226'], [0.6, '#2e2a6a'], [0.7, '#0e0c18'], [1, '#06050a']]);
+  let s = '';
+
+  // ---------------- broken stump
+  const stump = 'M128 400 C134 370 140 330 142 290 L146 252 L160 262 L170 238 L184 256 L196 236 L210 254 L226 226 L236 250 L252 240 L262 262 L274 250 L278 290 C282 330 290 370 302 400Z';
+  let bs = '';
+  for (let x = 150; x < 290; x += 13) bs += Ln(c, `M${x} 262 C${x + 2} 300 ${x - 2} 340 ${x + 3} 400`, '#2a160c', 3, 0.6, 0.8) + Ln(c, `M${x + 4} 270 C${x + 6} 310 ${x + 2} 350 ${x + 7} 400`, '#9a7050', 1.2, 0.35);
+  bs += E(c, 160, 320, 26, 80, '#c89068', 0.25, 12) + E(c, 290, 340, 22, 90, DEEP, 0.6, 12);
+  bs += E(c, 214, 340, 10, 14, '#2a160c', 0.9) + E(c, 214, 338, 6, 9, '#120a06');
+  s += part(c, stump, L(c, [0, 0, 1, 0], [[0, lit(bark, 0.2)], [0.3, bark], [0.75, dk(bark, 0.45)], [1, dk(bark, 0.6)]]), bs);
+  // pale broken wood at the top
+  s += part(c, 'M146 252 L160 262 L170 238 L184 256 L196 236 L210 254 L226 226 L236 250 L252 240 L262 262 L274 250 L276 268 C240 278 180 278 148 268Z', L(c, [0, 0, 0, 1], [[0, '#e8cfa0'], [0.6, '#b8925e'], [1, '#6a4a2a']]),
+    Ln(c, 'M170 240 L174 266 M196 238 L198 268 M226 228 L224 270 M252 242 L248 268', '#8a6a40', 1.2, 0.8));
+  // roots and moss
+  s += part(c, 'M128 400 C112 392 96 392 84 400Z', bark) + part(c, 'M302 400 C318 390 336 392 350 400Z', dk(bark, 0.3));
+  s += part(c, 'M126 400 C130 380 150 368 176 374 C200 380 214 392 220 400Z', L(c, [0, 0, 0, 1], [[0, '#6a9a3a'], [1, '#2a4a1a']]), E(c, 156, 380, 14, 5, '#a8d070', 0.5, 3));
+  s += part(c, 'M240 400 C252 384 278 380 300 388 C312 392 318 396 322 400Z', L(c, [0, 0, 0, 1], [[0, '#4a7a2e'], [1, '#1e3a14']]));
+  for (let i = 0; i < 11; i++) {
+    const x = 104 + i * 21 + (i % 3) * 5;
+    const lean = i % 2 ? 1 : -1;
+    const h = 26 + (i % 4) * 7;
+    s += part(c, `M${x - 4} 400 Q${x + lean * 4} ${400 - h * 0.6} ${x + lean * 12} ${400 - h} Q${x + lean * 2} ${400 - h * 0.5} ${x + 4} 400Z`, L(c, [0, 1, 0, 0], [[0, '#2a4a18'], [1, '#8ac050']]));
+  }
+
+  // ---------------- the bird (scaled up around the perch)
+  const ground = s;
+  s = '';
+  if (!g) {
+    // tail
+    s += feather(c, 262, 214, 336, 304, 22, 6) + feather(c, 256, 220, 322, 318, 22, 4) + feather(c, 268, 210, 344, 288, 18, 8);
+    // legs and toes gripping the top
+    for (const [x, y] of [[204, 226], [232, 232]]) {
+      s += Ln(c, `M${x + 4} ${y - 22} L${x} ${y}`, '#1a1820', 6) + Ln(c, `M${x} ${y} l-14 6 M${x} ${y} l-4 10 M${x} ${y} l8 8 M${x} ${y} l14 2`, '#1a1820', 4);
+      s += Ln(c, `M${x} ${y} l-14 6 M${x} ${y} l14 2`, '#4a4a5a', 1, 0.6);
+    }
+    // body
+    const body = 'M132 132 C150 112 196 112 236 128 C270 142 290 176 284 204 C278 228 252 236 222 230 C190 224 162 206 146 184 C134 168 126 150 132 132Z';
+    s += part(c, body, glossy(), E(c, 190, 140, 40, 16, '#4a4aa0', 0.3, 8) + E(c, 250, 210, 30, 20, DEEP, 0.5, 8) +
+      Ln(c, 'M150 180 C170 200 196 214 224 220', '#3a3a6a', 2, 0.5, 1));
+    // folded wing over the body
+    const wing = 'M168 130 C200 118 244 126 270 150 C292 170 304 200 314 236 C290 230 256 222 228 210 C200 196 178 176 168 158Z';
+    s += part(c, wing, glossy([0, 0, 1, 0.6]),
+      Ln(c, 'M186 140 C214 136 240 146 258 166 M196 156 C222 158 248 172 268 196 M210 176 C236 184 262 204 292 226', '#5a5ab8', 1.4, 0.5) +
+      Ln(c, 'M186 144 C214 140 240 150 258 170 M196 160 C222 162 248 176 268 200', '#06050a', 2, 0.5, 0.8) + E(c, 214, 150, 30, 12, '#6a62c8', 0.25, 6));
+    for (let i = 0; i < 5; i++) s += feather(c, 236 + i * 6, 190 + i * 4, 312 + i * 4, 236 + i * 6, 14, -3);
+    // head and throat hackles
+    const head = 'M104 108 C104 84 124 68 148 68 C170 68 186 82 188 104 C190 122 180 136 164 140 C146 144 124 142 112 132 C106 126 104 118 104 108Z';
+    s += part(c, head, glossy([0, 0, 1, 0.8]), E(c, 136, 82, 22, 9, '#5a5ab8', 0.4, 5) + E(c, 176, 120, 14, 20, DEEP, 0.5, 5));
+    s += part(c, 'M112 128 C118 146 130 158 148 164 L156 150 L150 140 C136 142 122 138 112 128Z', glossy(),
+      Ln(c, 'M118 136 l6 14 M126 140 l4 16 M136 142 l2 16 M146 144 l0 12', '#4a4a80', 1.2, 0.6));
+    // beak, heavy and hooked
+    s += part(c, 'M114 90 C96 84 74 86 56 96 C48 100 44 106 46 112 C48 116 52 114 54 111 C70 112 92 116 114 126Z', L(c, [0, 0, 0, 1], [[0, '#55536a'], [0.35, '#24222e'], [1, '#08070c']]),
+      Ln(c, 'M112 112 C92 109 72 110 54 111', '#06050a', 1.6, 0.9) + spec(c, 'M108 90 C92 87 74 90 60 98', 2, 0.6) + Ln(c, 'M114 92 C120 96 122 104 118 110', '#2a2840', 6, 0.8, 1));
+    s += Ln(c, 'M112 98 C120 94 128 94 134 98', '#2a2840', 4, 0.8);
+    // the eye
+    s += E(c, 142, 94, 7.4, 7, '#0a0810') + E(c, 142, 94, 5.4, 5.2, R(c, [0.5, 0.5, 0.5, 0.4, 0.35], [[0, '#fff2b0'], [0.4, '#f0b030'], [1, '#8a4a08']])) +
+      E(c, 142.4, 94.4, 2.4, 2.6, '#0a0608') + E(c, 140, 92, 1.4, 1.2, '#ffffff');
+  } else {
+    // wings spread wide, beak open
+    const wingFan = (sx, sy, dir, far) => {
+      let t = '';
+      const tone = far ? 0.75 : 1;
+      // primaries, fingered, fanning up and out
+      for (let i = 0; i < 7; i++) {
+        const a = (dir < 0 ? -92 - i * 9.5 : -100 + (8 + i * 11)) * (Math.PI / 180);
+        const len = 150 - i * 6 - (far ? 14 : 0);
+        const bx = sx + dir * (40 + i * 6);
+        const by = sy - 30 + i * 6;
+        t += feather(c, bx, by, bx + Math.cos(a) * len * 0.2 + dir * len * 0.72, by + Math.sin(a) * len * 0.9, 18 - i * 0.6, dir * 8, tone);
+      }
+      // secondaries along the trailing edge
+      for (let i = 0; i < 6; i++) {
+        const bx = sx + dir * (12 + i * 9);
+        const by = sy + 4 + i * 2;
+        t += feather(c, bx, by - 10, bx + dir * (18 + i * 4), by + 56 - i * 4, 17, dir * -4, tone);
+      }
+      // coverts, the inner arm of the wing
+      const cov = dir < 0
+        ? `M${sx} ${sy} C${sx - 30} ${sy - 50} ${sx - 80} ${sy - 76} ${sx - 120} ${sy - 80} C${sx - 110} ${sy - 50} ${sx - 70} ${sy - 10} ${sx - 20} ${sy + 20}Z`
+        : `M${sx} ${sy} C${sx + 30} ${sy - 50} ${sx + 80} ${sy - 76} ${sx + 120} ${sy - 80} C${sx + 110} ${sy - 50} ${sx + 70} ${sy - 10} ${sx + 20} ${sy + 20}Z`;
+      t += part(c, cov, glossy([dir < 0 ? 1 : 0, 0, dir < 0 ? 0 : 1, 1]),
+        Ln(c, `M${sx + dir * 16} ${sy - 12} C${sx + dir * 50} ${sy - 40} ${sx + dir * 84} ${sy - 56} ${sx + dir * 112} ${sy - 70} M${sx + dir * 20} ${sy + 4} C${sx + dir * 54} ${sy - 20} ${sx + dir * 84} ${sy - 36} ${sx + dir * 106} ${sy - 50}`, '#5a5ab8', 1.4, 0.45) +
+        E(c, sx + dir * 60, sy - 50, 30, 10, '#6a62c8', 0.25, 6, dir * -30));
+      return t;
+    };
+    s += wingFan(196, 158, -1, true);
+    // tail
+    s += feather(c, 236, 218, 296, 316, 22, 6) + feather(c, 230, 222, 276, 330, 22, 4) + feather(c, 242, 214, 312, 300, 18, 8);
+    for (const [x, y] of [[198, 228], [228, 232]]) {
+      s += Ln(c, `M${x + 3} ${y - 22} L${x} ${y}`, '#1a1820', 6) + Ln(c, `M${x} ${y} l-14 6 M${x} ${y} l-4 10 M${x} ${y} l8 8 M${x} ${y} l14 2`, '#1a1820', 4);
+    }
+    const body = 'M150 118 C170 98 214 104 240 126 C266 148 270 184 258 206 C246 228 220 234 196 226 C170 216 154 192 148 164 C144 146 142 130 150 118Z';
+    s += part(c, body, glossy(), E(c, 190, 140, 30, 20, '#4a4aa0', 0.3, 8) + E(c, 240, 200, 26, 20, DEEP, 0.5, 8));
+    s += wingFan(222, 160, 1, false);
+    // head raised, beak open
+    const head = 'M118 92 C116 68 134 50 158 50 C180 50 196 64 198 86 C200 104 190 118 174 122 C156 126 134 124 124 114 C120 108 118 100 118 92Z';
+    s += part(c, head, glossy([0, 0, 1, 0.8]), E(c, 148, 64, 22, 9, '#5a5ab8', 0.4, 5) + E(c, 186, 104, 14, 20, DEEP, 0.5, 5));
+    s += part(c, 'M126 112 C132 132 146 146 166 152 L176 136 L168 124 C152 126 136 122 126 112Z', glossy(),
+      Ln(c, 'M132 120 l6 14 M142 124 l4 16 M152 126 l2 16 M162 128 l0 12', '#4a4a80', 1.2, 0.6));
+    s += part(c, 'M128 76 C110 64 88 60 66 64 C58 66 54 72 56 78 C58 82 62 80 64 78 C84 80 106 86 126 96Z', L(c, [0, 0, 0, 1], [[0, '#55536a'], [0.45, '#24222e'], [1, '#08070c']]), spec(c, 'M122 74 C106 66 88 64 70 68', 2, 0.6));
+    s += P('M122 92 C104 86 86 84 66 82 C86 90 104 98 122 100Z', '#5a1a2a') + E(c, 104, 92, 10, 3, '#a8445a', 0.8, 0, 8);
+    s += part(c, 'M126 98 C108 100 90 106 72 116 C68 119 69 122 73 121 C92 116 110 112 126 110Z', L(c, [0, 0, 0, 1], [[0, '#3a3848'], [1, '#08070c']]));
+    s += Ln(c, 'M126 82 C134 78 142 78 148 82', '#2a2840', 4, 0.8);
+    s += E(c, 158, 78, 7.6, 7.2, '#0a0810') + E(c, 158, 78, 5.6, 5.4, R(c, [0.5, 0.5, 0.5, 0.4, 0.35], [[0, '#fff6c0'], [0.4, '#ffbe3a'], [1, '#9a5008']])) +
+      E(c, 158.4, 78.4, 2.2, 2.6, '#0a0608') + E(c, 156, 76, 1.4, 1.2, '#ffffff');
+  }
+  s = ground + G(g ? 'translate(204 240) scale(0.95) translate(-216 -238)' : 'translate(216 238) scale(1.18) translate(-216 -238)', s);
+  return wrap(c, s, { fx: { ow: 2.2, rim: 0.9 } });
+}
+
+
+// ================================================================ hand
+// The player's own sword hand, a screen overlay for the bottom-right
+// corner. The hand, hilt and blade are drawn in a local frame (grip along
+// y, blade toward -y, back of the gauntlet toward +x); the frame is then
+// rotated (idle) or reflected across the diagonal (attack, blade to the
+// left). The arm runs off the right and bottom edges.
+function ruby(c, rx, ry) {
+  return E(c, 0, 0, rx, ry, R(c, [0.5, 0.5, 0.6, 0.38, 0.32], [[0, '#ffd0d0'], [0.18, '#ff4a50'], [0.55, '#a80c1c'], [1, '#3a0208']])) +
+    E(c, -rx * 0.35, -ry * 0.35, rx * 0.28, ry * 0.2, '#ffffff', 0.85, 0.6);
+}
+
+function hand(frame) {
+  const c = ctx('hand', frame, 960, 960);
+  const g = frame === 'attack';
+  const crim = '#9a1420';
+  const fold = (d, w = 6, op = 0.5, b = 4, col = DEEP) => Ln(c, d, col, w, op, b);
+  const steelV = (v = [0, 0, 0, 1]) => L(c, v, [[0, '#f6f8fc'], [0.18, '#c4ccd8'], [0.42, '#6e7686'], [0.6, '#323744'], [0.8, '#7e8494'], [0.93, '#c8b8a6'], [1, '#9db4d8']]);
+  const steelH = (v = [0, 0, 1, 0]) => plate(c, v);
+  const sp = (d, w = 3, op = 0.85, b = 1.2) => Ln(c, d, '#ffffff', w, op, b);
+
+  // ---------------- blade, guard, grip (local frame)
+  let blade = '';
+  const bl = 'M-34 -112 L-31 -500 C-27 -548 -14 -592 0 -628 C14 -592 27 -548 31 -500 L34 -112Z';
+  const swordBlade = part(c, bl, L(c, [0, 0, 1, 0], [[0, '#3c4250'], [0.06, '#f8fbff'], [0.16, '#cfd8e6'], [0.32, '#8e98aa'], [0.45, '#4a5262'], [0.55, '#e6ecf4'], [0.7, '#7a8292'], [0.86, '#2e323e'], [0.94, '#b8aa9c'], [1, '#9fbbe6']]),
+    Ln(c, 'M-28 -112 L-26 -500 C-22 -546 -10 -588 0 -622', '#ffffff', 5, 0.6, 1.5) + Ln(c, 'M28 -112 L26 -500 C22 -546 10 -588 0 -622', '#1e222c', 5, 0.45, 1.5) +
+    S(c, 'M-8 -128 L-6 -470 L0 -496 L6 -470 L8 -128Z', L(c, [0, 0, 1, 0], [[0, '#22262f'], [0.45, '#5a6272'], [1, '#e8eef6']]), 0.92, 0.8) +
+    Ln(c, 'M-8 -128 L-6 -470 L0 -496', '#ffffff', 1.2, 0.5) +
+    S(c, 'M-30 -260 L-28 -390 L30 -350 L30 -230Z', '#dbe6f8', 0.28, 10) + E(c, 10, -560, 14, 50, '#ffffff', 0.25, 8) +
+    sp('M-18 -150 L-17 -470', 3.4, 0.7, 2) + sp('M-14 -190 L-13 -300', 2, 0.95, 0.6) +
+    G('translate(0 -170)', Ln(c, 'M0 -14 L0 14 M-10 0 L10 0 M-7 -7 L7 7 M7 -7 L-7 7', '#e8b844', 1.6, 0.85)));
+  blade += swordBlade;
+  const bladeOnly = () => blade;
+  // grip: leather with gold wire
+  let wire = '';
+  for (let y = -94; y < 92; y += 13) wire += `M-15 ${y + 6} L15 ${y} `;
+  blade += part(c, 'M-15 -96 L15 -96 L16 94 L-16 94Z', L(c, [0, 0, 1, 0], [[0, '#6a2a1c'], [0.3, '#8a3a26'], [0.7, '#3a140c'], [1, '#5a2a24']]),
+    Ln(c, wire, '#e8b844', 2.6, 0.95) + Ln(c, wire, '#2a0e08', 1, 0.6, 0.6));
+  // guard: gold bar, finials and rubies
+  const guard = 'M-158 -108 C-100 -116 -40 -118 0 -118 C40 -118 100 -116 158 -108 L160 -88 C100 -96 40 -98 0 -98 C-40 -98 -100 -96 -160 -88Z';
+  blade += part(c, guard, gilt(c), Ln(c, 'M-150 -110 C-100 -116 -40 -118 0 -118 C40 -118 100 -116 150 -110', '#fff8d0', 2, 0.8) + E(c, 100, -96, 50, 6, '#3a2208', 0.5, 4));
+  for (const x of [-170, 170]) {
+    blade += E(c, x, -99, 20, 20, R(c, [0.5, 0.5, 0.6, 0.35, 0.3], [[0, '#fff6c8'], [0.35, '#e8b844'], [0.8, '#8a5a12'], [1, '#4a2e06']]));
+    blade += G(`translate(${x} -99)`, ruby(c, 9, 9));
+  }
+  blade += part(c, 'M0 -146 L30 -108 L0 -64 L-30 -108Z', gilt(c, [0, 0, 1, 1]), Ln(c, 'M0 -146 L-30 -108 L0 -64', '#fff6c8', 2, 0.7));
+  blade += G('translate(0 -106)', ruby(c, 13, 17));
+
+  // ---------------- gauntlet (local frame)
+  let back = '';
+  // back of the hand: a broad convex plate on the +x side
+  const bh = 'M22 -80 C56 -90 94 -74 108 -42 C118 -10 118 30 110 64 C100 88 76 102 50 102 C34 102 22 94 18 84Z';
+  back += part(c, bh, R(c, [0.4, 0.4, 0.75, 0.3, 0.25], [[0, '#ffffff'], [0.12, '#e2e8f0'], [0.35, '#97a1b2'], [0.6, '#4a5160'], [0.82, '#2a2e3a'], [1, '#8aa2c8']]),
+    sp('M40 -74 C70 -78 92 -64 102 -40', 3, 0.85, 1.4) + Ln(c, 'M28 -40 C60 -46 92 -36 112 -16 M26 10 C60 4 94 12 114 28 M24 56 C56 52 86 60 108 74', '#20232c', 2.4, 0.6, 0.8) +
+    Ln(c, 'M28 -37 C60 -43 92 -33 112 -13 M26 13 C60 7 94 15 114 31', '#ffffff', 1, 0.4) + E(c, 100, 40, 16, 50, DEEP, 0.45, 8));
+  back += Ln(c, 'M24 -76 C56 -86 92 -70 106 -40 C116 -10 116 30 108 62', '#e8b844', 3.4, 0.95) + Ln(c, 'M26 -79 C56 -89 92 -73 106 -43', '#fff6c8', 1, 0.7);
+  for (const [x, y] of [[66, -60], [92, -26], [100, 20], [86, 70]]) back += E(c, x, y, 4.4, 4.4, gilt(c));
+
+  let fing = '';
+  // a rounded steel lame between x0 and x1 (local), from y0 to y1
+  const lame = (x0, x1, y0, y1, rl = 4, rr = 4) => {
+    const h = y1 - y0;
+    const d = `M${x0 + rl} ${y0} L${x1 - rr} ${y0} C${x1 - rr * 0.3} ${y0} ${x1} ${y0 + h * 0.2} ${x1} ${y0 + h * 0.5} C${x1} ${y0 + h * 0.8} ${x1 - rr * 0.3} ${y1} ${x1 - rr} ${y1} L${x0 + rl} ${y1} C${x0 + rl * 0.3} ${y1} ${x0} ${y0 + h * 0.8} ${x0} ${y0 + h * 0.5} C${x0} ${y0 + h * 0.2} ${x0 + rl * 0.3} ${y0} ${x0 + rl} ${y0}Z`;
+    return part(c, d, steelV(),
+      sp(`M${x0 + rl} ${y0 + h * 0.2} L${x1 - rr} ${y0 + h * 0.2}`, 2, 0.85, 0.7) +
+      Ln(c, `M${x0 + rl} ${y0 + h * 0.48} L${x1 - rr} ${y0 + h * 0.48}`, '#ffffff', 1, 0.3, 0.4) +
+      E(c, (x0 + x1) / 2, y1 - 2, (x1 - x0) * 0.55, 4, DEEP, 0.55, 2.4) + E(c, x1 - 3, y0 + h * 0.5, 4, h * 0.45, DEEP, 0.35, 2));
+  };
+  const rows = [[-76, -42, -60], [-40, -6, -64], [-4, 30, -62], [32, 62, -52]];
+  rows.forEach(([y0, y1, xl], i) => {
+    const h = y1 - y0;
+    // fingertip, curled under: a rounded cap
+    fing += lame(xl - 6, xl + 26, y0 + 3, y1 - 1, h * 0.45, 5);
+    // middle lame overlapping the tip
+    fing += lame(xl + 20, 16, y0 + 1, y1, 5, 5);
+    fing += Ln(c, `M${xl + 22} ${y0 + 3} L${xl + 22} ${y1 - 2}`, '#0e0c14', 2.4, 0.55, 1);
+    // proximal lame toward the knuckle
+    fing += lame(10, 52, y0 - 1, y1 + 1, 5, 8);
+    fing += Ln(c, `M12 ${y0 + 1} L12 ${y1 - 1}`, '#0e0c14', 2.6, 0.6, 1);
+    fing += E(c, xl + 24, y0 + h * 0.5, 2.6, 2.6, gilt(c)) + E(c, 15, y0 + h * 0.5, 2.6, 2.6, gilt(c));
+    if (i < 3) fing += Ln(c, `M${xl - 2} ${y1 + 0.5} L52 ${y1 + 1.5}`, '#0a0a10', 2.6, 0.75, 0.8);
+  });
+  // knuckle plate: a gilt-edged band over the knuckles with four bosses
+  const kp = 'M40 -84 C50 -86 60 -84 64 -80 C70 -40 70 20 64 70 C58 74 48 74 42 70 C46 20 46 -40 40 -84Z';
+  fing += part(c, kp, steelV([0, 0, 1, 0]), sp('M46 -78 C50 -40 50 20 47 64', 2.4, 0.8, 0.8) + E(c, 62, 0, 4, 70, DEEP, 0.45, 3));
+  fing += Ln(c, 'M40 -84 C46 -40 46 20 42 70', '#e8b844', 3) + Ln(c, 'M64 -80 C70 -40 70 20 64 70', '#c8962c', 3);
+  for (const y of [-58, -22, 13, 47]) fing += E(c, 53, y, 9, 11, dome(c, [0.3, 0.25])) + E(c, 51, y - 3, 2.4, 2, '#ffffff', 0.9);
+  // thumb: three overlapping lames wrapping over the index toward the guard
+  const tl = (cx0, cy0, rx, ry, rot) => G(`translate(${cx0} ${cy0}) rotate(${rot})`,
+    part(c, `M${-rx} 0 C${-rx} ${-ry * 1.1} ${rx} ${-ry * 1.1} ${rx} 0 C${rx} ${ry * 0.9} ${-rx} ${ry * 0.9} ${-rx} 0Z`, steelV(),
+      sp(`M${-rx * 0.7} ${-ry * 0.45} C${-rx * 0.2} ${-ry * 0.7} ${rx * 0.3} ${-ry * 0.7} ${rx * 0.7} ${-ry * 0.5}`, 2.2, 0.9, 0.7) + E(c, 0, ry * 0.6, rx * 0.9, 4, DEEP, 0.5, 2)));
+  fing += tl(60, -68, 38, 22, -30) + tl(22, -88, 32, 20, -12) + tl(-14, -94, 27, 18, -4);
+  fing += part(c, 'M-30 -110 C-50 -110 -62 -100 -60 -88 C-58 -78 -44 -76 -30 -80Z', steelV(), sp('M-50 -102 C-42 -107 -36 -107 -30 -105', 1.8, 0.8));
+  fing += E(c, 36, -86, 2.8, 2.8, gilt(c)) + E(c, 2, -96, 2.6, 2.6, gilt(c));
+
+  // pommel: gold wheel with a ruby
+  let pom = '';
+  pom += part(c, 'M-11 96 L11 96 L13 112 L-13 112Z', gilt(c, [0, 0, 1, 0]));
+  pom += E(c, 0, 132, 34, 30, R(c, [0.5, 0.5, 0.6, 0.35, 0.3], [[0, '#fff6c8'], [0.3, '#e8b844'], [0.75, '#8a5a12'], [1, '#3a2204']]));
+  pom += E(c, 0, 132, 25, 22, 'none') + `<ellipse cx="0" cy="132" rx="25" ry="22" fill="none" stroke="#7a4e10" stroke-width="2" opacity="0.7"/>`;
+  pom += G('translate(0 132)', ruby(c, 13, 12));
+  pom += E(c, 0, 164, 9, 6, gilt(c));
+
+  // ---------------- cuff and sleeve, in a frame along the forearm (+y)
+  const cuff = () => {
+    let t = '';
+    // crimson sleeve, quilted, running off the edges
+    const sl = 'M-150 232 C-160 360 -170 520 -180 760 L190 760 C176 520 164 360 150 232Z';
+    t += part(c, sl, L(c, [0, 0, 1, 0], [[0, '#5a0a12'], [0.2, '#c8303c'], [0.45, crim], [0.75, '#4a0610'], [1, '#7a2a4a']]),
+      fold('M-90 260 C-96 380 -104 520 -110 760 M-20 262 C-22 400 -24 560 -26 760 M60 262 C62 400 66 560 70 760', 12, 0.5, 7) +
+      Ln(c, 'M-120 260 C-126 380 -134 520 -142 760 M-54 262 C-58 400 -60 560 -62 760', '#ff7080', 4, 0.3, 4) +
+      Ln(c, 'M-150 300 L150 300 M-156 380 L156 380 M-162 460 L162 460', '#3a0408', 2, 0.4, 0, ' stroke-dasharray="7 5"'));
+    // flared steel cuff
+    const cf = 'M-84 0 C-96 70 -120 160 -150 240 L150 240 C120 160 96 70 84 0Z';
+    t += part(c, cf, steelH(),
+      sp('M-60 10 C-70 80 -88 160 -110 230', 4, 0.8, 1.8) + E(c, 0, 4, 90, 12, '#0e0c14', 0.55, 6) + E(c, 110, 160, 30, 90, DEEP, 0.45, 12));
+    // crimson-and-gold band across the cuff
+    const band = 'M-110 128 C-40 140 40 140 110 128 L124 184 C40 198 -40 198 -124 184Z';
+    t += part(c, band, L(c, [0, 0, 1, 0], [[0, '#6a0a14'], [0.2, '#d8404c'], [0.45, crim], [0.8, '#4a0610'], [1, '#8a3a5a']]),
+      Ln(c, 'M-112 134 C-40 146 40 146 112 134 M-122 178 C-40 192 40 192 122 178', '#e8b844', 4) +
+      Ln(c, 'M-112 132 C-40 144 40 144 112 132', '#fff6c8', 1.2, 0.8) +
+      Ln(c, 'M-90 158 c10 -12 20 -12 30 0 s20 12 30 0 s20 -12 30 0 s20 12 30 0 s20 -12 30 0 s20 12 30 0', '#e8b844', 2.2, 0.9));
+    for (const x of [-96, -48, 0, 48, 96]) t += E(c, x, 160 + Math.abs(x) * 0.06, 6, 6, gilt(c)) + E(c, x - 1.6, 158 + Math.abs(x) * 0.06, 1.8, 1.4, '#ffffff', 0.8);
+    // rolled gilt rim of the cuff
+    t += `<ellipse cx="0" cy="240" rx="150" ry="22" fill="none" stroke="${gilt(c)}" stroke-width="9"/>`;
+    t += Ln(c, 'M-148 236 C-60 222 60 222 148 236', '#fff6c8', 1.6, 0.7);
+    // wrist lames
+    t += Ln(c, 'M-86 34 C-30 46 30 46 86 34 M-92 70 C-30 84 30 84 92 70', '#1e2028', 3, 0.7) + Ln(c, 'M-86 37 C-30 49 30 49 86 37 M-92 73 C-30 87 30 87 92 73', '#ffffff', 1.2, 0.5);
+    return t;
+  };
+
+  // ---------------- assemble
+  let s = '';
+  let under = '';
+  let over = '';
+  const parts = (cuffTf) => blade + back + G(cuffTf, cuff()) + pom + fing;
+  if (!g) {
+    s += G('translate(642 606) rotate(-42) scale(1.26)', parts('translate(58 92) rotate(-14)'));
+  } else {
+    // mid-swing: a horizontal slash seen in perspective. The tip's path is a
+    // flattened ellipse arcing back over the blade toward the hand; a
+    // swoosh band and streaks follow it, and the blade smears sideways.
+    // None of these take the outline.
+    const F = [706, 548];
+    const tf = `translate(${F[0]} ${F[1]}) matrix(0 1.1 1.1 0 0 0)`;
+    const ec = [522, 552];
+    const ell = (rx, ry, from, to, n = 28) => [...Array(n + 1).keys()].map((i) => {
+      const a = ((from + ((to - from) * i) / n) * Math.PI) / 180;
+      return [ec[0] + rx * Math.cos(a), ec[1] + ry * Math.sin(a)];
+    });
+    let trail = '';
+    const sw = c.def('swoosh', `<linearGradient id="@ID" gradientUnits="userSpaceOnUse" x1="10" y1="560" x2="880" y2="360">${stopStr([[0, '#f2f7ff', 0.62], [0.35, '#d4e4ff', 0.34], [0.75, '#9fc4ff', 0.08], [1, '#9fc4ff', 0]])}</linearGradient>`);
+    trail += `<path d="${ribbon(ell(486, 236, 182, 318, 6), (t) => 120 * (1 - t) ** 1.3 + 4, 6)}" fill="${sw}" filter="${blur(c, 5)}"/>`;
+    for (let i = 0; i < 7; i++) {
+      const pts = ell(500 - i * 16, 244 - i * 9, 181 + i * 1.5, 300 - i * 9 + (i % 2) * 10, 20);
+      trail += `<path d="${ribbon(pts, (t) => (3.2 - i * 0.25) * (1 - t * 0.85), 3)}" fill="${sw}"/>`;
+    }
+    trail += `<g filter="${c.def('smear', '<filter id="@ID" filterUnits="userSpaceOnUse" x="-200" y="0" width="1400" height="960"><feGaussianBlur stdDeviation="22 1.2"/></filter>')}" opacity="0.45"><g transform="translate(26 -10)"><g transform="${tf}">${swordBlade}</g></g></g>`;
+    under = trail;
+    s += G(tf, parts('translate(62 86) rotate(-40)'));
+  }
+  return wrap(c, s, { under, over, fx: { ow: 2.8, lx: 300, ly: -200, lz: 900, kd: 1.22 } });
 }
 
 export const ART_PEOPLE = {
@@ -1430,4 +2060,7 @@ export const ART_PEOPLE = {
   pilgrim: { w: 440, h: 640, height: 1.7, frames: { idle: pilgrim('idle'), attack: pilgrim('attack') } },
   peddler: { w: 560, h: 640, height: 1.7, frames: { idle: peddler('idle'), attack: peddler('attack') } },
   sellsword: { w: 480, h: 640, height: 1.8, frames: { idle: sellsword('idle'), attack: sellsword('attack') } },
+  raven: { w: 400, h: 400, height: 0.6, frames: { idle: raven('idle'), attack: raven('attack') } },
+  vael: { w: 560, h: 800, height: 2.3, frames: { idle: vael('idle'), attack: vael('attack') } },
+  hand: { w: 960, h: 960, height: 0, frames: { idle: hand('idle'), attack: hand('attack') } },
 };

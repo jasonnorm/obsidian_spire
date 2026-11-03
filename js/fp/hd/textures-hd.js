@@ -213,22 +213,73 @@ function perlinInto(out, w, h, cx, cy, seed, amp) {
   return out;
 }
 
-// Tileable fBm, roughly -1..1 (mostly within +-0.6).
+// Tileable fBm, roughly -1..1 (mostly within +-0.6). Octaves whose cells
+// are 16 px or wider are evaluated at half resolution and upsampled once
+// (they are smooth enough that nothing is lost), the rest at full size.
 function fbm(w, h, cx, cy, oct, seed, gain = 0.5) {
   const out = f32(w * h);
-  let amp = 1;
+  let lowN = 0;
+  let used = 0;
   let sum = 0;
-  for (let o = 0; o < oct; o++) {
-    const ax = cx << o;
-    const ay = cy << o;
-    if (o > 0 && (ax > w / 2 || ay > h / 2)) break;
-    perlinInto(out, w, h, ax, ay, seed * 31 + o * 1013, amp);
-    sum += amp;
-    amp *= gain;
+  for (let k = 0, a = 1; k < oct; k++, a *= gain) {
+    const ax = cx << k;
+    const ay = cy << k;
+    if (k > 0 && (ax > w / 2 || ay > h / 2)) break;
+    // broad fields stop at 64 cells; finer grain comes from dedicated fields
+    if (k >= 3 && Math.max(ax * (512 / w), ay * (512 / h)) > 64) break;
+    if (w / ax >= 16 && h / ay >= 16) lowN++;
+    used++;
+    sum += a;
   }
-  const inv = 1 / sum;
-  for (let i = 0; i < out.length; i++) out[i] *= inv;
+  // amplitudes are normalised up front, so there is no final rescale pass
+  let amp = 1 / sum;
+  let o = 0;
+  if (lowN >= 2 && !(w & 1) && !(h & 1)) {
+    const w2 = w >> 1;
+    const h2 = h >> 1;
+    const lo = f32(w2 * h2);
+    for (; o < lowN; o++, amp *= gain) perlinInto(lo, w2, h2, cx << o, cy << o, seed * 31 + o * 1013, amp);
+    upsample2(lo, w2, h2, out, true);
+  }
+  for (; o < used; o++, amp *= gain) perlinInto(out, w, h, cx << o, cy << o, seed * 31 + o * 1013, amp);
   return out;
+}
+
+// Bilinear 2x upsample of a half-size field into `out` (adds); the edges
+// wrap for tiling fields and clamp otherwise. At exactly 2x the bilinear
+// weights are always 1/4 and 3/4, so each output row is one vertical lerp
+// into a row buffer and a fixed-weight horizontal pass.
+function upsample2(lo, w2, h2, out, wrapIt) {
+  const w = w2 * 2;
+  const h = h2 * 2;
+  const t = new Float32Array(w2 + 2);
+  for (let y = 0; y < h; y++) {
+    const j = y >> 1;
+    let ja = y & 1 ? j : j - 1;
+    let jb = ja + 1;
+    const fy = y & 1 ? 0.25 : 0.75;
+    if (wrapIt) {
+      ja = (ja + h2) % h2;
+      jb %= h2;
+    } else {
+      ja = ja < 0 ? 0 : ja;
+      jb = jb >= h2 ? h2 - 1 : jb;
+    }
+    const ra = ja * w2;
+    const rb = jb * w2;
+    for (let i = 0; i < w2; i++) {
+      const a = lo[ra + i];
+      t[i + 1] = a + (lo[rb + i] - a) * fy;
+    }
+    t[0] = wrapIt ? t[w2] : t[1];
+    t[w2 + 1] = wrapIt ? t[1] : t[w2];
+    const o = y * w;
+    for (let i = 0; i < w2; i++) {
+      const c = t[i + 1] * 0.75;
+      out[o + 2 * i] += t[i] * 0.25 + c;
+      out[o + 2 * i + 1] += c + t[i + 2] * 0.25;
+    }
+  }
 }
 
 // Ridged fBm, 0..1 with sharp crests at 1.
@@ -358,6 +409,24 @@ function blur(src, w, h, rad, passes = 2, wrapIt = true) {
   return a;
 }
 
+// A blur for AO-sized radii: small ones directly, large ones at half
+// resolution and upsampled (same result to the eye, a quarter of the work).
+function smoothField(src, w, h, rad, wrapIt) {
+  if (rad < 6 || (w & 1) || (h & 1)) return blur(src, w, h, rad, rad <= 3 ? 1 : 2, wrapIt);
+  const w2 = w >> 1;
+  const h2 = h >> 1;
+  const s = f32(w2 * h2);
+  for (let y = 0; y < h2; y++) {
+    const r0 = y * 2 * w;
+    const r1 = r0 + w;
+    for (let x = 0; x < w2; x++) s[y * w2 + x] = (src[r0 + x * 2] + src[r0 + x * 2 + 1] + src[r1 + x * 2] + src[r1 + x * 2 + 1]) * 0.25;
+  }
+  const b = blur(s, w2, h2, rad >> 1, 2, wrapIt);
+  const out = f32(w * h);
+  upsample2(b, w2, h2, out, wrapIt);
+  return out;
+}
+
 /* ---------------------------------------------------------------- Worley */
 
 // Jittered-grid cellular noise that wraps. `shift` offsets odd rows by half
@@ -389,13 +458,17 @@ const WCY = new Float64Array(9);
 const WCK = new Int32Array(9);
 // Query results live in typed arrays: module-level `let` doubles would be
 // boxed on every write and flood the garbage collector.
-const WQ = new Float64Array(5);
+const WQ = new Float64Array(7);
 
-// Query one point: nearest feature distance WQ[0], distance to the cell
-// border WQ[1], feature index WQ[2] and vector to the feature WQ[3], WQ[4]. `round` > 0 rounds the
+// Query the point (WQ[5], WQ[6]): nearest feature distance WQ[0], distance
+// to the cell border WQ[1], feature index WQ[2] and vector to the feature
+// WQ[3], WQ[4]. (Coordinates go in through the array too: doubles passed to
+// a call that is not inlined would be boxed on every pixel.) `round` > 0 rounds the
 // cell corners off by that many pixels.
-function wq(W, x, y, round, edge = true) {
+function wq(W, round, edge) {
   const { nx, ny, cw, ch, OX, OY, shift } = W;
+  const x = WQ[5];
+  const y = WQ[6];
   const cj = Math.floor(y / ch);
   let m = 0;
   let best = 1e18;
@@ -453,9 +526,49 @@ function wq(W, x, y, round, edge = true) {
   WQ[1] = d1 < 0 ? 0 : d1;
 }
 
+// Nearest-feature distance and index only, by splatting every feature over
+// the pixels within reach of it (much cheaper than querying each pixel).
+function worleyF1(W) {
+  const { w, h, nx, ny, cw, ch, OX, OY, shift } = W;
+  const n = w * h;
+  const d2 = f32(n).fill(1e18);
+  const id = i32(n);
+  const R = Math.ceil(Math.hypot(cw, ch) * 1.05) + 1;
+  for (let j = 0; j < ny; j++) {
+    for (let i = 0; i < nx; i++) {
+      const k = j * nx + i;
+      const px = i * cw + (shift && j & 1 ? cw * 0.5 : 0) + OX[k];
+      const py = j * ch + OY[k];
+      const y0 = Math.floor(py - R);
+      const y1 = Math.ceil(py + R);
+      const x0 = Math.floor(px - R);
+      const x1 = Math.ceil(px + R);
+      for (let y = y0; y <= y1; y++) {
+        const dy = y + 0.5 - py;
+        const dy2 = dy * dy;
+        const row = (((y % h) + h) % h) * w;
+        let xx = ((x0 % w) + w) % w;
+        for (let x = x0; x <= x1; x++, xx++) {
+          if (xx === w) xx = 0;
+          const dx = x + 0.5 - px;
+          const q = dx * dx + dy2;
+          const o = row + xx;
+          if (q < d2[o]) {
+            d2[o] = q;
+            id[o] = k;
+          }
+        }
+      }
+    }
+  }
+  for (let o = 0; o < n; o++) d2[o] = Math.sqrt(d2[o]);
+  return { f1: d2, id, edge: null, vx: null, vy: null };
+}
+
 // Fill whole-tile Worley fields, optionally domain-warped.
 function worleyFill(W, { round = 0, wx = null, wy = null, amt = 0, vec = false, edges = false } = {}) {
   const { w, h } = W;
+  if (!edges && !vec && !wx) return worleyF1(W);
   const n = w * h;
   const f1 = f32(n);
   const edge = edges ? f32(n) : null;
@@ -470,7 +583,9 @@ function worleyFill(W, { round = 0, wx = null, wy = null, amt = 0, vec = false, 
         px += wx[i] * amt;
         py += wy[i] * amt;
       }
-      wq(W, px, py, round, edges);
+      WQ[5] = px;
+      WQ[6] = py;
+      wq(W, round, edges);
       f1[i] = WQ[0];
       if (edges) edge[i] = WQ[1];
       id[i] = WQ[2];
@@ -620,7 +735,7 @@ class Tex {
 // properly); otherwise it paints over and raises the height to its own.
 function seg(T, x0, y0, x1, y1, r0, r1, c0, c1, h0, h1, dome, shade, ztest) {
   const { w, h, R, G, B, H, tile } = T;
-  const rm = Math.max(r0, r1) + 1;
+  const rm = Math.max(r0, r1) + 0.5;
   const minx = Math.floor(Math.min(x0, x1) - rm);
   const maxx = Math.ceil(Math.max(x0, x1) + rm);
   const miny = Math.floor(Math.min(y0, y1) - rm);
@@ -628,6 +743,7 @@ function seg(T, x0, y0, x1, y1, r0, r1, c0, c1, h0, h1, dome, shade, ztest) {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const L2 = dx * dx + dy * dy + 1e-9;
+  const il = 1 / Math.sqrt(L2);
   for (let py = miny; py <= maxy; py++) {
     let yy = py;
     if (tile) {
@@ -638,6 +754,8 @@ function seg(T, x0, y0, x1, y1, r0, r1, c0, c1, h0, h1, dome, shade, ztest) {
     const qy = py + 0.5 - y0;
     for (let px = minx; px <= maxx; px++) {
       const qx = px + 0.5 - x0;
+      const perp = (qx * dy - qy * dx) * il;
+      if (perp > rm || perp < -rm) continue;
       let t = (qx * dx + qy * dy) / L2;
       t = t < 0 ? 0 : t > 1 ? 1 : t;
       const ex = qx - dx * t;
@@ -667,9 +785,6 @@ function seg(T, x0, y0, x1, y1, r0, r1, c0, c1, h0, h1, dome, shade, ztest) {
     }
   }
 }
-
-const SA = [0, 0, 0];
-const SB = [0, 0, 0];
 
 // A polyline through flat points [x0,y0,x1,y1,...]; radius, colour and
 // height are interpolated along its length.
@@ -856,29 +971,6 @@ function glowLine(T, M, Gl, x0, y0, x1, y1, core, sigma) {
   }
 }
 
-function glowDot(T, M, Gl, x, y, rad, sigma, ring = 0) {
-  const { w, h, tile } = T;
-  const ext = rad + sigma * 2.6 + 1;
-  const is2 = 1 / (sigma * sigma);
-  for (let py = Math.floor(y - ext); py <= Math.ceil(y + ext); py++) {
-    let yy = py;
-    if (tile) yy = wrap(yy, h);
-    else if (yy < 0 || yy >= h) continue;
-    for (let px = Math.floor(x - ext); px <= Math.ceil(x + ext); px++) {
-      let xx = px;
-      if (tile) xx = wrap(xx, w);
-      else if (xx < 0 || xx >= w) continue;
-      const d = Math.hypot(px + 0.5 - x, py + 0.5 - y);
-      const i = yy * w + xx;
-      const dd = ring > 0 ? Math.abs(d - rad) : Math.max(0, d - rad);
-      const c = clamp((ring > 0 ? ring : 0.5) - dd + 0.5);
-      if (c > M[i]) M[i] = c;
-      const g = Math.exp(-dd * dd * is2);
-      if (g > Gl[i]) Gl[i] = g;
-    }
-  }
-}
-
 /* ---------------------------------------------------------------- output */
 
 function mkCanvas(w, h) {
@@ -946,14 +1038,28 @@ function normalCanvas(Hf, w, h, k, wrapIt) {
 }
 
 // Cavity shading from the height field: crevices darker, crests a touch
-// lighter. Radius in pixels; kLo/kHi per height unit.
-function cavity(T, rad, kLo, kHi, floor = 0.3) {
-  const bl = blur(T.H, T.w, T.h, rad, 2, T.tile);
+// lighter. Each pass is [radius px, darkening, lightening] per height unit;
+// all passes are applied in one sweep.
+function cavity(T, passes) {
   const { R, G, B, H, n } = T;
+  const fields = passes.map(([rad]) => smoothField(H, T.w, T.h, rad, T.tile));
+  const m = passes.length;
+  const kLo = passes.map((p) => p[1]);
+  const kHi = passes.map((p) => p[2]);
+  const f0 = fields[0];
+  const f1 = m > 1 ? fields[1] : null;
+  const lo0 = kLo[0];
+  const hi0 = kHi[0];
+  const lo1 = m > 1 ? kLo[1] : 0;
+  const hi1 = m > 1 ? kHi[1] : 0;
   for (let i = 0; i < n; i++) {
-    const d = H[i] - bl[i];
-    let f = d < 0 ? 1 + d * kLo : 1 + d * kHi;
-    f = f < floor ? floor : f > 1.3 ? 1.3 : f;
+    const d0 = H[i] - f0[i];
+    let f = d0 < 0 ? 1 + d0 * lo0 : 1 + d0 * hi0;
+    if (f1) {
+      const d1 = H[i] - f1[i];
+      f *= d1 < 0 ? 1 + d1 * lo1 : 1 + d1 * hi1;
+    }
+    f = f < 0.3 ? 0.3 : f > 1.3 ? 1.3 : f;
     R[i] *= f;
     G[i] *= f;
     B[i] *= f;
@@ -961,7 +1067,7 @@ function cavity(T, rad, kLo, kHi, floor = 0.3) {
 }
 
 function finish(T, nrm, aos) {
-  for (const a of aos) cavity(T, ...a);
+  if (aos.length) cavity(T, aos);
   const out = {
     map: rgbCanvas(T.R, T.G, T.B, T.w, T.h),
     normal: normalCanvas(T.H, T.w, T.h, nrm, T.tile),
@@ -970,7 +1076,6 @@ function finish(T, nrm, aos) {
   return out;
 }
 
-const AO_SOFT = [[2, 0.07, 0.03], [10, 0.035, 0.015]];
 
 /* ================================================================ ground */
 
@@ -989,37 +1094,38 @@ function heath() {
     B[i] = soil[k + 2] * (0.95 - z * 0.12);
     H[i] = lump[i] * 5 + fine[i];
   }
-  // Heather clumps: raised woody mats speckled with purple bells.
+  // Pale stones, half sunk in the turf.
+  const r = rng(107);
+  const mott = fbm(w, h, 40, 40, 3, 108);
+  for (let s = 0; s < 5; s++) {
+    const rx = 12 + r() * 13;
+    rock(T, r() * w, r() * h, rx, rx * (0.55 + r() * 0.3), r() * TAU, C('#a29e94'), 4 + rx * 0.3, r, mott, { lichen: 0.12, lichenCol: C('#9c9a76'), sink: 0.45 });
+  }
+  // Heather clumps: raised woody mats, dusky purple where they flower.
   const hm = norm(fbm(w, h, 5, 5, 5, 104));
   const hn = fbm(w, h, 24, 24, 3, 105);
   const hf = fbm(w, h, 128, 128, 1, 106);
   const keep = f32(n);
   const mask = f32(n);
-  const wood = C('#2a2414');
-  const bloom = C('#5a2c55');
+  const wood = C('#231d0e');
+  const bloom = C('#42263e');
   for (let i = 0; i < n; i++) {
     const m = sstep(0.56, 0.66, hm[i] + hf[i] * 0.05 + hn[i] * 0.04);
     mask[i] = m;
     keep[i] = 1 - m * 0.92;
     if (m <= 0) continue;
-    const fl = clamp(0.45 + hn[i] * 1.3 + hf[i] * 0.5);
+    const fl = clamp(0.4 + hn[i] * 1.3 + hf[i] * 0.4);
     const tone = 0.8 + hf[i] * 0.5;
     T.blend3(i, lerp(wood[0], bloom[0], fl) * tone, lerp(wood[1], bloom[1], fl) * tone, lerp(wood[2], bloom[2], fl) * tone, m);
     H[i] += m * (5 + hn[i] * 3) + hf[i] * 1.4 * m;
   }
-  // Pale stones.
-  const r = rng(107);
-  const mott = fbm(w, h, 40, 40, 3, 108);
-  for (let s = 0; s < 6; s++) {
-    const rx = 9 + r() * 13;
-    rock(T, r() * w, r() * h, rx, rx * (0.55 + r() * 0.35), r() * TAU, C('#aaa496'), 5 + rx * 0.3, r, mott, { lichen: 0.25 });
-  }
-  // Heather sprigs: woody stems with purple florets toward the tips.
-  const florets = ['#7a3a70', '#924a86', '#a85e9a', '#68305e', '#b878ac', '#8a4a7a'].map(C);
-  const stem0 = C('#2a2214');
-  const stem1 = C('#4a3e26');
+  // Sprigs: woody stems with small bells toward the tips, flowering unevenly.
+  const florets = ['#5e3058', '#6c3a66', '#7a4472', '#52284c', '#86507e', '#4a2644'].map(C);
+  const leafy = ['#3a3a1e', '#46442a', '#2e3018'].map(C);
+  const stem0 = C('#241c10');
+  const stem1 = C('#3e3420');
   const fc = [0, 0, 0];
-  for (let k = 0; k < 9000; k++) {
+  for (let k = 0; k < 7000; k++) {
     const x = r() * w;
     const y = r() * h;
     const i = T.at(x, y);
@@ -1030,21 +1136,22 @@ function heath() {
     const tx = x + Math.cos(a) * L;
     const ty = y + Math.sin(a) * L;
     seg(T, x, y, tx, ty, 0.7, 0.4, stem0, stem1, g, g + 3, 0.3, 0.3, true);
-    const nf = 2 + ((r() * 4) | 0);
+    const flowering = hn[i] + (r() - 0.5) * 0.3 > -0.12;
+    const nf = 2 + ((r() * 3) | 0);
     for (let f = 0; f < nf; f++) {
       const t = 0.45 + r() * 0.6;
       const fx = x + Math.cos(a) * L * t + (r() - 0.5) * 2.5;
       const fy = y + Math.sin(a) * L * t + (r() - 0.5) * 2.5;
-      const col = florets[(r() * florets.length) | 0];
-      const sh = 0.85 + r() * 0.3;
+      const col = flowering ? florets[(r() * florets.length) | 0] : leafy[(r() * leafy.length) | 0];
+      const sh = 0.8 + r() * 0.35;
       fc[0] = col[0] * sh;
       fc[1] = col[1] * sh;
       fc[2] = col[2] * sh;
-      const fr = 0.8 + r() * 0.7;
+      const fr = 0.75 + r() * 0.6;
       seg(T, fx, fy, fx + 0.3, fy + 0.3, fr, fr * 0.8, fc, fc, g + 2 + t * 2, g + 2 + t * 2, fr * 0.8, 0.45, true);
     }
   }
-  blades(T, 17000, 109, {
+  blades(T, 15500, 109, {
     keep, len: [4, 11], wid: [0.55, 0.95], zk: 0.45,
     base: ['#33301a', '#423d20', '#3a3a1e'],
     tip: ['#7a7436', '#9a8a46', '#b4a464', '#6a6a30', '#8c7c3c', '#a49650', '#5e6630'],
@@ -1067,7 +1174,7 @@ function grassmound() {
     H[i] = lump[i] * 6 + fine[i] * 0.8;
   }
   const keep = f32(n).fill(1);
-  blades(T, 30000, 204, {
+  blades(T, 27000, 204, {
     keep, len: [7, 16], wid: [0.6, 1.05], zk: 0.55, bend: 1.3,
     base: ['#16200c', '#1c2a10', '#223012'],
     tip: ['#3e6a22', '#4e7a2a', '#5a8a30', '#36601e', '#6a9234', '#46702a', '#5a7a2a'],
@@ -1119,44 +1226,42 @@ function marsh() {
   const mossN = norm(fbm(w, h, 6, 6, 4, 304));
   const refl = fbm(w, h, 2, 6, 3, 305);
   const mudL = ramp([[0, '#17120c'], [0.45, '#282015'], [0.75, '#372d1e'], [1, '#463c2a']]);
-  const mossL = ramp([[0, '#23300f'], [0.5, '#3e4f1a'], [1, '#64762a']]);
-  const deep = C('#0b2226');
-  const shal = C('#1d4440');
-  const sky = C('#4f8682');
+  const mossL = ramp([[0, '#23300f'], [0.5, '#3e4f1a'], [1, '#5e702a']]);
+  const deep = C('#0a2024');
+  const shal = C('#1a3e3c');
+  const sky = C('#4a7e7a');
   const WL = 0.38;
   for (let i = 0; i < n; i++) {
-    const l = low[i];
-    let ground = (l - WL) * 50 + mud[i] * 4 + fine[i] * 0.8;
-    const wet = sstep(6, 0, ground);
+    let ground = (low[i] - WL) * 22 + mud[i] * 3.5 + fine[i] * 0.8;
+    const wet = sstep(4, 0, ground);
     const k = lutIdx((0.55 + mud[i] * 0.9 + fine[i] * 0.45) * (1 - wet * 0.3));
     let cr = mudL[k];
     let cg = mudL[k + 1];
     let cb = mudL[k + 2];
-    const mm = sstep(0.55, 0.68, mossN[i] + fine[i] * 0.05) * sstep(1, 5, ground);
+    const mm = sstep(0.55, 0.68, mossN[i] + fine[i] * 0.05) * sstep(0.6, 3, ground);
     if (mm > 0) {
       const mk = lutIdx(0.5 + fine[i] * 1.3 + mud[i] * 0.5);
       cr = lerp(cr, mossL[mk], mm);
       cg = lerp(cg, mossL[mk + 1], mm);
       cb = lerp(cb, mossL[mk + 2], mm);
-      ground += mm * (1.5 + fine[i] * 2);
+      ground += mm * (1.2 + fine[i] * 1.6);
     }
-    // Wet sheen near the water line.
-    const sheen = sstep(3, 0, ground) * 0.25;
-    cr = lerp(cr, 0.1, sheen);
-    cg = lerp(cg, 0.13, sheen);
-    cb = lerp(cb, 0.12, sheen);
+    // a wet, darker sheen along the water's edge
+    const sheen = sstep(2.2, 0, ground) * 0.3;
+    cr = lerp(cr, 0.09, sheen);
+    cg = lerp(cg, 0.12, sheen);
+    cb = lerp(cb, 0.11, sheen);
     if (ground < 0.6) {
-      const depth = clamp(-ground / 7);
+      const depth = clamp(-ground / 4);
       const sw = sstep(0.6, -0.6, ground);
-      const rf = sstep(-0.05, 0.35, refl[i]) * 0.55 + fine[i] * 0.05;
+      const rf = sstep(-0.05, 0.35, refl[i]) * 0.5 + fine[i] * 0.04;
       let wr = lerp(shal[0], deep[0], depth);
       let wg = lerp(shal[1], deep[1], depth);
       let wb = lerp(shal[2], deep[2], depth);
       wr = lerp(wr, sky[0], rf);
       wg = lerp(wg, sky[1], rf);
       wb = lerp(wb, sky[2], rf);
-      // shallow water shows the mud below
-      const see = (1 - depth) * 0.45;
+      const see = (1 - depth) * 0.4;
       wr = lerp(wr, cr, see);
       wg = lerp(wg, cg, see);
       wb = lerp(wb, cb, see);
@@ -1170,47 +1275,50 @@ function marsh() {
     B[i] = cb;
     H[i] = ground;
   }
-  // Floating and fallen reed straws.
+  // A few floating and fallen reed straws.
   const r = rng(306);
-  const straw = ['#8a7a4a', '#a48f58', '#6a5a36', '#b8a46c'].map(C);
-  for (let k = 0; k < 140; k++) {
+  const straw = ['#6e6040', '#857650', '#5a4c30'].map(C);
+  for (let k = 0; k < 55; k++) {
     const x = r() * w;
     const y = r() * h;
     const a = r() * TAU;
-    const L = 12 + r() * 26;
+    const L = 10 + r() * 22;
     const c = straw[(r() * straw.length) | 0];
-    const g = Math.max(0, H[T.at(x, y)]) + 0.6;
-    seg(T, x, y, x + Math.cos(a) * L, y + Math.sin(a) * L, 0.75, 0.6, c, c, g, g, 0.5, 0.35, false);
+    const g = Math.max(0, H[T.at(x, y)]) + 0.5;
+    seg(T, x, y, x + Math.cos(a) * L, y + Math.sin(a) * L, 0.6, 0.5, c, c, g, g, 0.4, 0.35, false);
   }
-  // Reed tussocks: broken stubble fanning from a crown.
-  const reedB = C('#2e2614');
-  const reedT = ['#8f7f4c', '#a8965e', '#6e6034', '#5e6a2a', '#7a7a3a'].map(C);
+  // Reed tussocks: a dark crown bristling with short broken stubble.
+  const crown = C('#1e1b0e');
+  const reed = ['#6e6436', '#8a7c48', '#4e5424', '#5e6a2a', '#3e3e1c', '#9a8a54'].map(C);
   const ct = [0, 0, 0];
-  for (let k = 0; k < 34; k++) {
+  const cb0 = [0, 0, 0];
+  for (let k = 0; k < 40; k++) {
     const cx = r() * w;
     const cy = r() * h;
+    const cr = 5 + r() * 5;
     const g = Math.max(0, H[T.at(cx, cy)]);
-    stamp(T, cx, cy, 7, 7, 0, null, (i, d, u, v, a) => {
-      const z = g + 2 * (1 - d);
+    stamp(T, cx, cy, cr * 1.2, cr * 1.2, 0, wobble(r, 1.5), (i, d, u, v, a) => {
+      const z = g + 2.5 * (1 - d * d);
       if (z > H[i]) {
-        T.blend(i, reedB, a * 0.8);
+        T.blend(i, crown, a * 0.85);
         H[i] = z;
       }
     });
-    const m = 22 + ((r() * 26) | 0);
+    const m = 45 + ((r() * 40) | 0);
     for (let s = 0; s < m; s++) {
-      const rr = Math.sqrt(r()) * 7;
+      const rr = Math.sqrt(r()) * cr;
       const ra = r() * TAU;
       const x = cx + Math.cos(ra) * rr;
       const y = cy + Math.sin(ra) * rr;
-      const a = ra + (r() - 0.5) * 1.2;
-      const L = 3 + r() * 9;
-      const c = reedT[(r() * reedT.length) | 0];
-      const sh = 0.8 + r() * 0.4;
-      ct[0] = c[0] * sh;
-      ct[1] = c[1] * sh;
-      ct[2] = c[2] * sh;
-      seg(T, x, y, x + Math.cos(a) * L, y + Math.sin(a) * L, 1.05, 0.7, reedB, ct, g + 3, g + 6 + L * 0.5, 0.7, 0.35, true);
+      const a = ra + (r() - 0.5) * 2.2;
+      const L = r() < 0.8 ? 1.5 + r() * 4 : 5 + r() * 6;
+      const c = reed[(r() * reed.length) | 0];
+      const sh = 0.75 + r() * 0.45;
+      for (let j = 0; j < 3; j++) {
+        ct[j] = c[j] * sh;
+        cb0[j] = c[j] * sh * 0.45;
+      }
+      seg(T, x, y, x + Math.cos(a) * L, y + Math.sin(a) * L, 0.95, 0.75, cb0, ct, g + 3, g + 5 + L * 0.4, 0.6, 0.35, true);
     }
   }
   return finish(T, 1.0, [[2, 0.06, 0.03], [10, 0.03, 0.012]]);
@@ -1222,9 +1330,9 @@ function volcanic() {
   const E = T.em();
   const wx = fbm(w, h, 6, 6, 3, 401);
   const wy = fbm(w, h, 6, 6, 3, 402);
-  const P = worleyFill(makeWorley(w, h, 7, 7, 403, 0.85), { wx, wy, amt: 14, vec: true, edges: true });
-  const P2 = worleyFill(makeWorley(w, h, 18, 18, 404, 0.9), { wx, wy, amt: 8, edges: true });
   const PW = makeWorley(w, h, 7, 7, 403, 0.85);
+  const P = worleyFill(PW, { wx, wy, amt: 14, vec: true, edges: true });
+  const P2 = worleyFill(makeWorley(w, h, 18, 18, 404, 0.9), { wx, wy, amt: 8, edges: true });
   const cw = norm(fbm(w, h, 8, 8, 3, 405));
   const surf = fbm(w, h, 20, 20, 4, 406);
   const fine = fbm(w, h, 128, 128, 1, 407);
@@ -1290,43 +1398,61 @@ function snow() {
       H[i] = dr * 22 + s * s * 3.5 * sstep(-0.2, 0.3, wx[i] + 0.1) + fine[i] * 0.3;
     }
   }
-  // Exposed stones, dusted on top.
-  const r = rng(507);
-  const mott = fbm(w, h, 40, 40, 3, 508);
-  const stoneMask = f32(n);
-  for (let s = 0; s < 7; s++) {
-    const rx = 7 + r() * 14;
-    const cx = r() * w;
-    const cy = r() * h;
-    rock(T, cx, cy, rx, rx * (0.5 + r() * 0.4), r() * TAU, C('#5e5e66'), 6 + rx * 0.35, r, mott, { sink: 0.6, lichen: 0.15, lichenCol: C('#7a7c6a') });
-    stamp(T, cx, cy, rx * 1.3, rx * 1.3, 0, null, (i, d) => {
-      stoneMask[i] = Math.max(stoneMask[i], 1 - d);
-    });
-  }
-  const bl = blur(H, w, h, 10, 2);
+  const bl = smoothField(H, w, h, 10, true);
   const bl2 = blur(H, w, h, 3, 1);
   const lit = C('#eef2f8');
-  const mid = C('#d4dcea');
-  const shade = C('#9aaad0');
+  const mid = C('#d2dae8');
+  const shade = C('#97a7cf');
   for (let i = 0; i < n; i++) {
     const cav = clamp(0.5 + (H[i] - bl[i]) * 0.09 + (H[i] - bl2[i]) * 0.12 + tint[i] * 0.25);
-    const sr = cav < 0.5 ? lerp(shade[0], mid[0], cav * 2) : lerp(mid[0], lit[0], cav * 2 - 1);
-    const sg = cav < 0.5 ? lerp(shade[1], mid[1], cav * 2) : lerp(mid[1], lit[1], cav * 2 - 1);
-    const sb = cav < 0.5 ? lerp(shade[2], mid[2], cav * 2) : lerp(mid[2], lit[2], cav * 2 - 1);
     const sp = hash1(i, 509) > 0.9965 ? 0.08 : 0;
-    // snow already painted on stones keeps their colour; elsewhere snow
-    const isStone = R[i] + G[i] + B[i] > 0 ? 1 : 0;
-    if (!isStone) {
-      R[i] = sr + sp;
-      G[i] = sg + sp;
-      B[i] = sb + sp;
+    if (cav < 0.5) {
+      R[i] = lerp(shade[0], mid[0], cav * 2) + sp;
+      G[i] = lerp(shade[1], mid[1], cav * 2) + sp;
+      B[i] = lerp(shade[2], mid[2], cav * 2) + sp;
     } else {
-      // dusting on the upper faces and drifted against the sides
-      const dust = sstep(0.1, 0.5, mott[i] + (H[i] - bl[i]) * 0.05) * 0.85;
-      R[i] = lerp(R[i], sr, dust);
-      G[i] = lerp(G[i], sg, dust);
-      B[i] = lerp(B[i], sb, dust);
+      R[i] = lerp(mid[0], lit[0], cav * 2 - 1) + sp;
+      G[i] = lerp(mid[1], lit[1], cav * 2 - 1) + sp;
+      B[i] = lerp(mid[2], lit[2], cav * 2 - 1) + sp;
     }
+  }
+  // Grey stones breaking through the crust, snow lying on their tops and
+  // drifted up against their sides.
+  const r = rng(507);
+  const mott = fbm(w, h, 32, 32, 3, 508);
+  const stone = C('#7c7874');
+  const lichen = C('#7c7c62');
+  for (let s = 0; s < 6; s++) {
+    const rx = 11 + r() * 15;
+    const cx = r() * w;
+    const cy = r() * h;
+    const g0 = H[T.at(cx, cy)] - rx * 0.05;
+    const hgt = rx * 0.65;
+    const tone = 0.8 + r() * 0.35;
+    const sd = (r() * 1e6) | 0;
+    stamp(T, cx, cy, rx, rx * (0.55 + r() * 0.35), r() * TAU, wobble(r, 1.3), (i, d, u, v, a) => {
+      const dd = d > 1 ? 1 : d;
+      const dome = Math.sqrt(1 - dd * dd);
+      const z = g0 + hgt * dome + mott[i] * 3;
+      if (z <= H[i]) return;
+      const emerge = clamp((z - H[i]) / 2.5) * a;
+      let k = tone * (0.68 + dome * 0.3 + mott[i] * 0.35) + (hash1(i, sd) - 0.5) * 0.08;
+      let cr = stone[0] * k;
+      let cg = stone[1] * k;
+      let cb = stone[2] * k;
+      const lc = sstep(0.15, 0.3, mott[(i * 13) & (n - 1)]) * 0.5;
+      cr = lerp(cr, lichen[0] * k, lc);
+      cg = lerp(cg, lichen[1] * k, lc);
+      cb = lerp(cb, lichen[2] * k, lc);
+      const dust = sstep(0.82, 0.95, dome * 0.75 + mott[i] * 1.1 + 0.18) * 0.9;
+      cr = lerp(cr, lit[0] * 0.95, dust);
+      cg = lerp(cg, lit[1] * 0.95, dust);
+      cb = lerp(cb, lit[2] * 0.97, dust);
+      R[i] += (cr - R[i]) * emerge;
+      G[i] += (cg - G[i]) * emerge;
+      B[i] += (cb - B[i]) * emerge;
+      H[i] += (z - H[i]) * a;
+    });
   }
   return finish(T, 0.9, [[3, 0.03, 0.01], [12, 0.012, 0.004]]);
 }
@@ -1435,7 +1561,7 @@ function forest() {
 
 function desert() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const dune = fbm(w, h, 2, 2, 3, 701);
   const warp = fbm(w, h, 3, 3, 3, 702);
   const warp2 = fbm(w, h, 8, 8, 2, 703);
@@ -1483,44 +1609,37 @@ function ash() {
   const lump = fbm(w, h, 14, 14, 3, 802);
   const fine = fbm(w, h, 128, 128, 1, 803);
   const zone = norm(fbm(w, h, 4, 4, 3, 804));
+  const rip = fbm(w, h, 4, 4, 2, 812);
   const ashL = ramp([[0, '#121114'], [0.4, '#222024'], [0.7, '#333036'], [1, '#4a464e']]);
   const warm = C('#3a2e2a');
-  for (let i = 0; i < n; i++) {
-    const k = lutIdx(0.5 + lump[i] * 0.6 + fine[i] * 0.35 + dune[i] * 0.4);
-    const z = sstep(0.55, 0.9, zone[i]) * 0.4;
-    R[i] = lerp(ashL[k], warm[0], z);
-    G[i] = lerp(ashL[k + 1], warm[1], z);
-    B[i] = lerp(ashL[k + 2], warm[2], z);
-    H[i] = dune[i] * 10 + lump[i] * 2.2 + fine[i] * 0.35;
-  }
-  // Cinders: porous dark clinker lumps.
-  const CW = makeWorley(w, h, 34, 34, 805, 0.9);
-  const cin = worleyFill(CW);
-  const CW2 = makeWorley(w, h, 90, 90, 806, 0.9);
-  const grit = worleyFill(CW2);
-  const cinC = C('#100c0e');
-  const ember = C('#4a1a12');
-  for (let i = 0; i < n; i++) {
-    const k = cin.id[i];
-    if (CW.RA[k] < 0.4) {
-      const rc = CW.cw * (0.14 + CW.RB[k] * 0.2);
-      const d = cin.f1[i] / rc;
-      if (d < 1.15) {
-        const a = clamp((1.15 - d) * rc * 0.6);
-        const dome = Math.sqrt(Math.max(0, 1 - d * d));
-        const pore = fine[i] < -0.15 ? 0.55 : 1;
-        const em = CW.RC[k] < 0.25 ? sstep(-0.1, 0.4, fine[i]) * 0.6 : 0;
-        const kk = (0.7 + dome * 0.6) * pore;
-        T.blend3(i, lerp(cinC[0], ember[0], em) * kk + 0.03, lerp(cinC[1], ember[1], em) * kk + 0.025, cinC[2] * kk + 0.03, a);
-        H[i] += dome * (1.5 + CW.RD[k] * 2.5) * a;
+  for (let y = 0, i = 0; y < h; y++) {
+    for (let x = 0; x < w; x++, i++) {
+      // faint wind ripples in the powder
+      const p = fract((5 * x + 30 * y) / 512 + rip[i] * 2.5);
+      const rp = p < 0.65 ? p / 0.65 : (1 - p) / 0.35;
+      const ra = sstep(-0.1, 0.4, dune[i]) * 0.8;
+      const k = lutIdx(0.5 + lump[i] * 0.6 + fine[i] * 0.35 + dune[i] * 0.4 + (rp - 0.5) * ra * 0.15);
+      const z = sstep(0.55, 0.9, zone[i]) * 0.4;
+      R[i] = lerp(ashL[k], warm[0], z);
+      G[i] = lerp(ashL[k + 1], warm[1], z);
+      B[i] = lerp(ashL[k + 2], warm[2], z);
+      H[i] = dune[i] * 10 + lump[i] * 2.2 + fine[i] * 0.35 + rp * ra;
+      if (hash1(i, 813) > 0.97) {
+        R[i] *= 0.6;
+        G[i] *= 0.6;
+        B[i] *= 0.6;
       }
     }
-    const k2 = grit.id[i];
-    if (CW2.RA[k2] < 0.3 && grit.f1[i] < 1.4) {
-      const a = clamp(1.4 - grit.f1[i]);
-      T.blend3(i, 0.06, 0.055, 0.06, a * 0.8);
-      H[i] += a * 0.8;
-    }
+  }
+  // Cinders: porous clinker lumps of every size, a few still ember-brown.
+  const r = rng(805);
+  const pore = fbm(w, h, 64, 64, 2, 806);
+  const cin = ['#141012', '#1c1618', '#241c1c', '#2a2222', '#1a1414'].map(C);
+  const ember = C('#3e1c14');
+  for (let k = 0; k < 340; k++) {
+    const rx = 1.4 + Math.pow(r(), 2.4) * 7;
+    const col = r() < 0.12 ? ember : cin[(r() * cin.length) | 0];
+    rock(T, r() * w, r() * h, rx, rx * (0.6 + r() * 0.4), r() * TAU, col, 1 + rx * 0.45, r, pore, { sink: 0.3, wob: 1.8, flat: 0.8 });
   }
   // Faint violet fissures along broken cell borders.
   const wx = fbm(w, h, 5, 5, 3, 807);
@@ -1540,8 +1659,9 @@ function ash() {
     const scorch = Math.exp(-e / 7) * bm;
     T.mul(i, 1 - scorch * 0.45);
     T.blend3(i, core[0] * 0.8, core[1] * 0.8, core[2] * 0.8, c * 0.85);
+    T.blend3(i, glowC[0] * 0.3, glowC[1] * 0.3, glowC[2] * 0.3, g * 0.25);
     H[i] -= (sstep(half + 3, 0, e) * 3 + c * 1.5) * bm;
-    const it = c * 0.75 + g * 0.18;
+    const it = c * 0.75 + g * 0.2;
     E[0][i] = glowC[0] * it + core[0] * c * 0.2;
     E[1][i] = glowC[1] * it + core[1] * c * 0.2;
     E[2][i] = glowC[2] * it + core[2] * c * 0.2;
@@ -1565,7 +1685,6 @@ function road() {
   const verge = C('#3a3a1c');
   const keepG = f32(n);
   const keepP = f32(n);
-  const keepC = f32(n);
   for (let y = 0, i = 0; y < h; y++) {
     const c1 = 168 + off[y] * 16 + off2[y] * 3;
     const c2 = 344 + off[y] * 16 - off2[y] * 3;
@@ -1596,13 +1715,15 @@ function road() {
       cr = lerp(cr, verge[0] * (0.8 + fine[i]), g);
       cg = lerp(cg, verge[1] * (0.8 + fine[i]), g);
       cb = lerp(cb, verge[2] * (0.8 + fine[i]), g);
-      R[i] = cr;
-      G[i] = cg;
-      B[i] = cb;
-      H[i] = z;
+      // loose grit: pale and dark grains, fewer in the ruts
+      const gh = hash1(i, 912);
+      const gk = gh > 0.972 + rut * 0.02 ? 1.22 : gh < 0.03 ? 0.72 : 1;
+      R[i] = cr * gk;
+      G[i] = cg * gk;
+      B[i] = cb * gk;
+      H[i] = z + (gk !== 1 ? 0.5 : 0);
       keepG[i] = g + centre * 0.2 * (1 - rut);
       keepP[i] = (1 - rut * 0.85) * (1 - g * 0.7);
-      keepC[i] = rut;
     }
   }
   const r = rng(909);
@@ -1636,7 +1757,7 @@ function cobble() {
   const surf = fbm(w, h, 32, 32, 3, 1005);
   const fine = fbm(w, h, 128, 128, 1, 1006);
   const mossN = fbm(w, h, 8, 8, 3, 1007);
-  const pal = ['#77736c', '#686a6e', '#82786a', '#5c5854', '#8a7e70', '#6e665c', '#7a6458', '#72767a'].map(C);
+  const pal = ['#77736c', '#686a6e', '#7e766a', '#5c5854', '#857c70', '#6e665c', '#726a62', '#72767a'].map(C);
   const soil = C('#1e1a15');
   const moss = C('#2e3a18');
   for (let i = 0; i < n; i++) {
@@ -1665,7 +1786,7 @@ function cobble() {
 
 function stonewall() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const r = rng(1101);
   const L = bondLayout(w, h, rowHeights(512, [56, 64, 64, 72, 80, 48], r), 1102, 90, 200);
   const wx = fbm(w, h, 16, 16, 2, 1103);
@@ -1673,44 +1794,45 @@ function stonewall() {
   const chip = fbm(w, h, 32, 32, 3, 1105);
   const face = fbm(w, h, 8, 8, 5, 1106);
   const fine = fbm(w, h, 128, 128, 1, 1107);
-  const streak = fbm(w, h, 40, 2, 3, 1108);
+  const pit = fbm(w, h, 64, 64, 2, 1112);
+  const streak = fbm(w, h, 48, 2, 3, 1108);
   const lichen = norm(fbm(w, h, 14, 14, 4, 1109));
   const tool = fbm(w, h, 64, 6, 2, 1110);
   const pal = ['#8a8478', '#9a9080', '#7a7670', '#a39a88', '#6f6a64', '#948a7a', '#837a6c'].map(C);
   const mortar = C('#8a8274');
-  const lc = C('#8a8c5a');
+  const lc = C('#8e8e6a');
   const grime = C('#3a3630');
   for (let y = 0, i = 0; y < h; y++) {
     for (let x = 0; x < w; x++, i++) {
       bondAt(L, x + 0.5 + wx[i] * 1.5, y + 0.5 + wy[i] * 1.5);
       const QLX = BQ[0];
       const QLY = BQ[1];
-      const QDX = BQ[2];
-      const QDY = BQ[3];
       const b = QB;
-      const e = rrect(QDX, QDY, 3) - 1.6 - Math.max(0, chip[i]) * 3;
+      const e = rrect(BQ[2], BQ[3], 3) - 1.6 - Math.max(0, chip[i]) * 4;
       const s = sstep(-0.5, 0.5, e);
       const bevel = sstep(0, 5, e);
       const u = QLX / b.w - 0.5;
       const v = QLY / b.h - 0.5;
-      const zb = 10 + bevel * 3 + face[i] * 2.2 + fine[i] * 0.35 + tool[i] * 0.4 + (b.r1 - 0.5) * 2 + u * (b.r2 - 0.5) * 3 + v * (b.r3 - 0.5) * 2;
+      const pt = pit[i] < -0.18 ? (pit[i] + 0.18) * 4 : 0;
+      const zb = 10 + bevel * 3 + face[i] * 2.2 + fine[i] * 0.45 + tool[i] * 0.4 + pt + (b.r1 - 0.5) * 2 + u * (b.r2 - 0.5) * 3 + v * (b.r3 - 0.5) * 2;
       const zm = 5 + fine[i] * 0.6 + face[i] * 0.6;
       const c = pal[(b.r4 * pal.length) | 0];
-      let kk = (0.88 + b.r5 * 0.22) * (0.86 + face[i] * 0.3 + fine[i] * 0.12 + tool[i] * 0.05) + (hash1(i, 1111) - 0.5) * 0.06;
-      kk *= 1 + (1 - bevel) * 0.08;
+      let kk = (0.88 + b.r5 * 0.22) * (0.86 + face[i] * 0.3 + fine[i] * 0.14 + tool[i] * 0.05 + pt * 0.12) + (hash1(i, 1111) - 0.5) * 0.07;
+      kk *= 1 + (1 - bevel) * 0.1;
       let cr = c[0] * kk;
       let cg = c[1] * kk;
       let cb = c[2] * kk;
-      // rain streaks fading down from each course top, grime below
-      const st = Math.max(0, streak[i]) * (1 - (QLY / b.h) * 0.4) * 0.9;
-      const gm = st + sstep(0.2, 0.5, v) * 0.15;
-      cr = lerp(cr, grime[0], gm * 0.5);
-      cg = lerp(cg, grime[1], gm * 0.5);
-      cb = lerp(cb, grime[2], gm * 0.5);
-      const lch = sstep(0.68, 0.76, lichen[i] + fine[i] * 0.15) * 0.7;
-      cr = lerp(cr, lc[0], lch);
-      cg = lerp(cg, lc[1], lch);
-      cb = lerp(cb, lc[2], lch);
+      // rain streaks running down from each course top, grime toward the bottom
+      const st = sstep(0.05, 0.3, streak[i]) * (1 - (QLY / b.h) * 0.5);
+      const gm = st * 0.4 + sstep(0.15, 0.5, v) * 0.12;
+      cr = lerp(cr, grime[0], gm);
+      cg = lerp(cg, grime[1], gm);
+      cb = lerp(cb, grime[2], gm);
+      // soft lichen, mostly low on the blocks and along the joints
+      const lch = sstep(0.62, 0.82, lichen[i] + fine[i] * 0.12 + v * 0.12 + (1 - bevel) * 0.08) * 0.38;
+      cr = lerp(cr, lc[0] * kk, lch);
+      cg = lerp(cg, lc[1] * kk, lch);
+      cb = lerp(cb, lc[2] * kk, lch);
       const mk = 0.8 + fine[i] * 0.3;
       R[i] = lerp(mortar[0] * mk, cr, s);
       G[i] = lerp(mortar[1] * mk, cg, s);
@@ -1723,12 +1845,13 @@ function stonewall() {
 
 function barrowwall() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const r = rng(1201);
   const L = bondLayout(w, h, rowHeights(512, [18, 22, 26, 30, 34, 40], r), 1202, 34, 150);
   const wx = fbm(w, h, 12, 12, 3, 1203);
   const wy = fbm(w, h, 12, 12, 3, 1204);
   const edgeN = fbm(w, h, 40, 40, 3, 1205);
+  const edgeB = fbm(w, h, 16, 16, 2, 1211);
   const face = fbm(w, h, 10, 10, 4, 1206);
   const fine = fbm(w, h, 128, 128, 1, 1207);
   const earthN = fbm(w, h, 24, 24, 3, 1208);
@@ -1739,34 +1862,31 @@ function barrowwall() {
   for (let y = 0, i = 0; y < h; y++) {
     for (let x = 0; x < w; x++, i++) {
       bondAt(L, x + 0.5 + wx[i] * 3, y + 0.5 + wy[i] * 2);
-      const QLX = BQ[0];
       const QLY = BQ[1];
-      const QDX = BQ[2];
-      const QDY = BQ[3];
       const b = QB;
       const gap = 2 + b.r1 * 3.5;
-      const e = rrect(QDX, QDY, Math.min(9, b.h * 0.45)) - gap - edgeN[i] * 3.5;
+      const e = rrect(BQ[2], BQ[3], Math.min(7, b.h * 0.35)) - gap - edgeN[i] * 3 - edgeB[i] * 6;
       const s = sstep(-0.6, 0.6, e);
       const bulge = Math.sqrt(clamp(e / (b.h * 0.42)));
-      const zs = 6 + bulge * 6 + face[i] * 2 + fine[i] * 0.4 + (b.r2 - 0.5) * 4;
+      const zs = 6 + bulge * 6 + face[i] * 2 + fine[i] * 0.45 + (b.r2 - 0.5) * 4;
       const ek = lutIdx(0.5 + earthN[i] * 0.9 + fine[i] * 0.3);
-      const ze = 0 + earthN[i] * 1.5 + fine[i] * 0.4;
+      const ze = earthN[i] * 1.5 + fine[i] * 0.4;
       const c = pal[(b.r3 * pal.length) | 0];
-      const kk = (0.82 + b.r4 * 0.3) * (0.8 + face[i] * 0.35 + bulge * 0.15) * (1 - sstep(0.6, 1, QLY / b.h) * 0.15) + (hash1(i, 1210) - 0.5) * 0.07;
+      const kk = (0.82 + b.r4 * 0.3) * (0.8 + face[i] * 0.35 + bulge * 0.15 + fine[i] * 0.1) * (1 - sstep(0.6, 1, QLY / b.h) * 0.15) + (hash1(i, 1210) - 0.5) * 0.07;
       let cr = c[0] * kk;
       let cg = c[1] * kk;
       let cb = c[2] * kk;
-      const lch = sstep(0.7, 0.78, lichen[i] + fine[i] * 0.2) * 0.6;
-      cr = lerp(cr, lc[0], lch);
-      cg = lerp(cg, lc[1], lch);
-      cb = lerp(cb, lc[2], lch);
+      const lch = sstep(0.66, 0.84, lichen[i] + fine[i] * 0.15) * 0.35;
+      cr = lerp(cr, lc[0] * kk * 1.1, lch);
+      cg = lerp(cg, lc[1] * kk * 1.1, lch);
+      cb = lerp(cb, lc[2] * kk * 1.1, lch);
       R[i] = lerp(earth[ek], cr, s);
       G[i] = lerp(earth[ek + 1], cg, s);
       B[i] = lerp(earth[ek + 2], cb, s);
       H[i] = lerp(ze, zs, s);
     }
   }
-  // Hanging roots.
+  // Roots hanging down through the joints.
   const root0 = C('#2a1e12');
   const root1 = C('#6a5236');
   const down = (a) => (Math.PI / 2 - a) * 0.12;
@@ -1789,7 +1909,7 @@ function barrowwall() {
 
 function barrowfloor() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const r = rng(1301);
   const L = bondLayout(w, h, rowHeights(512, [84, 96, 110, 120, 128], r), 1302, 90, 210);
   const wx = fbm(w, h, 6, 6, 3, 1303);
@@ -1861,7 +1981,7 @@ function barrowceil() {
   }
   const r = rng(1404);
   const mott = fbm(w, h, 40, 40, 2, 1405);
-  const stC = ['#5a564e', '#4a4640', '#6a6256'].map(C);
+  const stC = ['#4a4036', '#3e362e', '#55493c'].map(C);
   for (let k = 0; k < 26; k++) {
     const rx = 3 + r() * 7;
     rock(T, r() * w, r() * h, rx, rx * (0.6 + r() * 0.4), r() * TAU, stC[(r() * 3) | 0], 2 + rx * 0.4, r, mott, { sink: 0.4 });
@@ -1922,22 +2042,30 @@ function barrowceil() {
 
 function obsidian() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const L = bondLayout(w, h, [128, 128, 128, 128], 1501, 150, 300);
   const und = fbm(w, h, 6, 6, 4, 1502);
   const fine = fbm(w, h, 128, 128, 1, 1503);
   const chipW = worleyFill(makeWorley(w, h, 48, 48, 1504, 0.9));
+  const flow = fbm(w, h, 2, 20, 3, 1509);
   const vx = fbm(w, h, 4, 4, 3, 1505);
   const vy = fbm(w, h, 4, 4, 3, 1506);
   const vein = ridged(w, h, 3, 3, 4, 1507);
-  const glass = ramp([[0, '#060509'], [0.4, '#0d0b12'], [0.7, '#16131e'], [1, '#262236']]);
-  const violet = C('#5a2e8a');
+  const glass = ramp([[0, '#08070c'], [0.4, '#121019'], [0.7, '#201c2a'], [1, '#3a3448']]);
+  const violet = C('#6a3aa0');
   const r = rng(1508);
-  const centres = [];
+  // Conchoidal scars: shell-shaped chips struck out of each block's edges,
+  // rippled with rings that widen away from the point of impact.
+  const scars = [];
   for (let k = 0; k < L.count; k++) {
-    const c = [];
-    for (let j = 0; j < 3; j++) c.push([r(), r(), 7 + r() * 8, r() * TAU, 30 + r() * 50]);
-    centres.push(c);
+    const list = [];
+    const m = 1 + ((r() * 2.6) | 0);
+    for (let j = 0; j < m; j++) {
+      const side = (r() * 4) | 0;
+      const t = 0.1 + r() * 0.8;
+      list.push([side, t, 20 + r() * 34, 2.2 + r() * 1.5, r() * TAU]);
+    }
+    scars.push(list);
   }
   for (let y = 0, i = 0; y < h; y++) {
     for (let x = 0; x < w; x++, i++) {
@@ -1947,32 +2075,44 @@ function obsidian() {
       const QDX = BQ[2];
       const QDY = BQ[3];
       const b = QB;
-      // scalloped, chipped arrises
       const chip = clamp(1 - chipW.f1[i] / 6) * 3;
       const e = rrect(QDX, QDY, 4) - 1.3 - chip * sstep(10, 2, Math.min(QDX, QDY));
       const s = sstep(-0.5, 0.5, e);
       const bev = sstep(0, 6, e);
-      // conchoidal ripples around a few impact points
+      let dish = 0;
       let ripple = 0;
-      for (const [cu, cv, lam, ph, fall] of centres[b.id]) {
-        const dx = QLX - cu * b.w;
-        const dy = QLY - cv * b.h;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        ripple += Math.sin((d / lam) * TAU + ph) * Math.exp(-d / fall);
+      let rim = 0;
+      for (const sc of scars[b.id]) {
+        const side = sc[0];
+        const cx = side === 0 ? sc[1] * b.w : side === 1 ? b.w : side === 2 ? sc[1] * b.w : 0;
+        const cy = side === 0 ? 0 : side === 1 ? sc[1] * b.h : side === 2 ? b.h : sc[1] * b.h;
+        const dx = QLX - cx;
+        const dy = QLY - cy;
+        const d = Math.sqrt(dx * dx + dy * dy) * (1 + und[i] * 0.25);
+        const R0 = sc[2];
+        if (d < R0 * 1.1) {
+          const t = d / R0;
+          if (t < 1) {
+            dish += (1 - t * t) * R0 * 0.1;
+            ripple += Math.sin(Math.sqrt(d) * sc[3] * 2 + sc[4]) * (1 - t) * 0.6;
+          }
+          rim += Math.exp(-((t - 1) * (t - 1)) / 0.004);
+        }
       }
       const u = QLX / b.w - 0.5;
       const v = QLY / b.h - 0.5;
-      const zb = 12 + bev * 3 + und[i] * 3 + ripple * 0.7 + (b.r1 - 0.5) * 2 + u * (b.r2 - 0.5) * 6 + v * (b.r3 - 0.5) * 4 + fine[i] * 0.1;
-      let tone = 0.42 + und[i] * 0.5 + ripple * 0.12 + (b.r4 - 0.5) * 0.15 + (1 - bev) * 0.25;
+      const zb = 12 + bev * 3 + und[i] * 2.5 - dish + ripple * 0.5 + rim * 0.4 + (b.r1 - 0.5) * 2 + u * (b.r2 - 0.5) * 10 + v * (b.r3 - 0.5) * 6 + fine[i] * 0.08;
+      const fl = sstep(0.1, 0.35, flow[i]) * 0.12;
+      const tone = 0.36 + und[i] * 0.4 + ripple * 0.16 + rim * 0.35 + dish * 0.02 + (b.r4 - 0.5) * 0.14 + (1 - bev) * 0.3 + fl;
       const vv = sample(vein, w, h, x + 0.5 + vx[i] * 60, y + 0.5 + vy[i] * 60);
-      const vl = sstep(0.9, 0.975, vv);
+      const vl = sstep(0.88, 0.97, vv) * (0.6 + b.r5 * 0.4);
       const k = lutIdx(tone);
       let cr = glass[k];
       let cg = glass[k + 1];
       let cb = glass[k + 2];
-      cr = lerp(cr, violet[0], vl * 0.55);
-      cg = lerp(cg, violet[1], vl * 0.55);
-      cb = lerp(cb, violet[2], vl * 0.55);
+      cr = lerp(cr, violet[0], vl * 0.6);
+      cg = lerp(cg, violet[1], vl * 0.6);
+      cb = lerp(cb, violet[2], vl * 0.6);
       R[i] = lerp(0.02, cr, s);
       G[i] = lerp(0.018, cg, s);
       B[i] = lerp(0.028, cb, s);
@@ -1989,14 +2129,14 @@ const RUNES = [
   [[2, 0, 2, 8], [0, 2, 4, 6], [4, 2, 0, 6]],
   [[2, 0, 0, 2], [0, 2, 2, 4], [2, 4, 4, 2], [4, 2, 2, 0], [2, 4, 2, 8]],
   [[0, 0, 4, 0], [2, 0, 2, 8], [2, 5, 4, 7]],
-  [[0, 8, 2, 0], [2, 0, 4, 8], [1, 5, 3, 5]],
+  [[0, 0, 2, 3], [4, 0, 2, 3], [2, 3, 2, 8], [0, 8, 2, 6], [4, 8, 2, 6]],
   [[2, 0, 2, 8], [0, 1, 2, 3], [4, 1, 2, 3], [0, 5, 2, 7], [4, 5, 2, 7]],
-  [[1, 0, 1, 8], [1, 2, 3, 0], [1, 5, 4, 8]],
+  [[1, 0, 1, 8], [1, 2, 4, 4], [4, 4, 1, 6], [3, 0, 4, 1]],
   [[0, 0, 4, 4], [4, 4, 0, 8], [2, 2, 2, 6]],
   [[2, 0, 2, 8], [0, 3, 2, 1], [2, 1, 4, 3], [0, 7, 4, 5]],
   [[0, 2, 2, 0], [2, 0, 4, 2], [2, 0, 2, 8], [0, 6, 4, 6]],
   [[1, 0, 3, 0], [2, 0, 2, 5], [0, 5, 4, 5], [0, 5, 2, 8], [4, 5, 2, 8]],
-  [[0, 0, 0, 8], [0, 3, 4, 1], [0, 5, 4, 7]],
+  [[1, 0, 1, 8], [1, 4, 4, 1], [4, 1, 4, 5]],
   [[2, 0, 2, 8], [0, 4, 2, 2], [2, 2, 4, 4], [0, 4, 2, 6], [2, 6, 4, 4]],
   [[0, 0, 2, 2], [4, 0, 2, 2], [2, 2, 2, 8], [0, 8, 4, 6]],
   [[1, 0, 1, 6], [1, 6, 3, 8], [3, 8, 3, 2], [3, 2, 1, 0]],
@@ -2014,69 +2154,63 @@ function spirewall() {
   const smk = fbm(w, h, 6, 6, 5, 1602);
   const swx = fbm(w, h, 4, 4, 3, 1603);
   const fine = fbm(w, h, 128, 128, 1, 1604);
-  const stone = ramp([[0, '#07060a'], [0.45, '#100e15'], [0.75, '#1a1722'], [1, '#2a2536']]);
+  const vn = veins(w, h, 1607, 4, 60, 0.6, 0);
+  const stone = ramp([[0, '#07060a'], [0.45, '#100e15'], [0.75, '#1b1823'], [1, '#2c2738']]);
   const M = f32(n);
   const Gl = f32(n);
   const r = rng(1605);
-  const DX = [1, Math.SQRT1_2, 0, -Math.SQRT1_2, -1, -Math.SQRT1_2, 0, Math.SQRT1_2];
-  const DY = [0, Math.SQRT1_2, 1, Math.SQRT1_2, 0, -Math.SQRT1_2, -1, -Math.SQRT1_2];
-  // Angular rune-veins wandering through the stone.
-  for (let v = 0; v < 13; v++) {
-    let x = r() * w;
-    let y = r() * h;
-    let d = (r() * 4 | 0) * 2 + (r() < 0.3 ? 1 : 0);
-    const segs = 4 + ((r() * 6) | 0);
-    glowDot(T, M, Gl, x, y, 3.2, 3.5, 0.9);
-    for (let s = 0; s < segs; s++) {
-      const len = 10 + r() * 30;
-      const nx = x + DX[d] * len;
-      const ny = y + DY[d] * len;
-      glowLine(T, M, Gl, x, y, nx, ny, 0.85, 3.2);
-      if (r() < 0.3) {
-        const bd = (d + (r() < 0.5 ? 2 : 6)) & 7;
-        const bl = 5 + r() * 9;
-        glowLine(T, M, Gl, nx, ny, nx + DX[bd] * bl, ny + DY[bd] * bl, 0.7, 2.6);
-        glowDot(T, M, Gl, nx + DX[bd] * bl, ny + DY[bd] * bl, 1.3, 2.5);
-      }
+  // Jagged rune-veins: cracks that glow, running with sharp turns and
+  // branching, now and then passing through a cut rune.
+  const crack = (x, y, a, steps, core, depth) => {
+    for (let s = 0; s < steps; s++) {
+      a += (r() - 0.5) * 0.9;
+      if (r() < 0.12) a += (r() < 0.5 ? 1 : -1) * 0.9;
+      const len = 4 + r() * 7;
+      const nx = x + Math.cos(a) * len;
+      const ny = y + Math.sin(a) * len;
+      const c = core * (1 - (s / steps) * 0.45);
+      glowLine(T, M, Gl, x, y, nx, ny, c, 3.2);
+      if (depth < 2 && r() < 0.14) crack(nx, ny, a + (r() < 0.5 ? 1 : -1) * (0.6 + r() * 0.6), 3 + ((r() * 6) | 0), c * 0.75, depth + 1);
       x = nx;
       y = ny;
-      if (r() < 0.7) d = (d + (r() < 0.5 ? 1 : 7)) & 7;
     }
-    if (r() < 0.5) glowDot(T, M, Gl, x, y, 1.6, 3);
-    else glowDot(T, M, Gl, x, y, 3, 3, 0.8);
-  }
-  // A few small runes cut into block faces.
-  const picks = [];
-  for (const row of L.rows) for (const b of row.blocks) if (b.r6 < 0.3) picks.push(b);
-  for (const b of picks) {
-    const cx = b.x0 + b.w * (0.3 + b.r5 * 0.4);
-    const cy = b.y0 + b.h / 2;
-    runeStrokes(T, M, Gl, (b.r4 * 16) | 0, cx - 8, cy - 18, 4, 4.5, 0.85, 3);
+  };
+  for (let v = 0; v < 14; v++) crack(r() * w, r() * h, r() * TAU, 10 + ((r() * 14) | 0), 0.85, 0);
+  for (const row of L.rows) {
+    for (const b of row.blocks) {
+      if (b.r6 >= 0.28) continue;
+      const cx = b.x0 + b.w * (0.3 + b.r5 * 0.4);
+      const cy = b.y0 + b.h / 2;
+      runeStrokes(T, M, Gl, (b.r4 * 16) | 0, cx - 8, cy - 18, 4, 4.5, 0.85, 3);
+      // a hairline crack leading out of the rune
+      crack(cx + 2, cy + 18, Math.PI / 2 + (r() - 0.5), 3 + ((r() * 4) | 0), 0.6, 1);
+    }
   }
   const vio = C('#c7a4ff');
   const glow = C('#8a4aff');
   const hot = C('#f0e2ff');
+  const vline = C('#2c2638');
   for (let y = 0, i = 0; y < h; y++) {
     for (let x = 0; x < w; x++, i++) {
       bondAt(L, x + 0.5, y + 0.5);
-      const QLX = BQ[0];
-      const QLY = BQ[1];
-      const QDX = BQ[2];
-      const QDY = BQ[3];
       const b = QB;
-      const e = rrect(QDX, QDY, 2.5) - 1.6;
+      const e = rrect(BQ[2], BQ[3], 2.5) - 1.6;
       const s = sstep(-0.5, 0.5, e);
       const bev = sstep(0, 3.5, e);
-      const sm = sample(smk, w, h, x + 0.5 + swx[i] * 50, y + 0.5);
-      let tone = 0.45 + sm * 0.55 + fine[i] * 0.06 + (b.r1 - 0.5) * 0.2 + (1 - bev) * 0.3;
+      const sm = sample(smk, w, h, x + 0.5 + swx[i] * 50 + b.r1 * 200, y + 0.5);
+      const tone = 0.4 + sm * 0.7 + fine[i] * 0.06 + (b.r1 - 0.5) * 0.22 + (1 - bev) * 0.35;
       const k = lutIdx(tone);
       let cr = stone[k];
       let cg = stone[k + 1];
       let cb = stone[k + 2] * (1 + b.r2 * 0.15);
+      const vl = vn[i] * 0.5;
+      cr = lerp(cr, vline[0], vl);
+      cg = lerp(cg, vline[1], vl);
+      cb = lerp(cb, vline[2], vl);
       if (hash1(i, 1606) > 0.997) {
-        cr += 0.12;
-        cg += 0.11;
-        cb += 0.15;
+        cr += 0.1;
+        cg += 0.09;
+        cb += 0.13;
       }
       const m = M[i];
       const g = Gl[i];
@@ -2086,7 +2220,7 @@ function spirewall() {
       R[i] = lerp(0.015, cr, s);
       G[i] = lerp(0.012, cg, s);
       B[i] = lerp(0.02, cb, s);
-      H[i] = lerp(6, 10 + bev * 2 + sm * 0.5 + fine[i] * 0.05 + (b.r3 - 0.5) * 0.8, s) - m * 1.2;
+      H[i] = lerp(6, 10 + bev * 2.2 + sm * 0.5 + fine[i] * 0.05 + (b.r3 - 0.5) * 0.8, s) - m * 1.2;
       const it = m + g * 0.32;
       E[0][i] = clamp(glow[0] * it + hot[0] * m * m * 0.35);
       E[1][i] = clamp(glow[1] * it + hot[1] * m * m * 0.35);
@@ -2096,36 +2230,52 @@ function spirewall() {
   return finish(T, 1.0, [[2, 0.07, 0.03], [8, 0.02, 0.01]]);
 }
 
-// Marble veins: thin zero-crossings of a domain-warped fBm.
-function veins(w, h, seed, cells, warpAmt, width) {
-  const base = fbm(w, h, cells, cells, 5, seed);
+// Marble veins: the zero-crossings of a domain-warped fBm, drawn at a
+// width in pixels by dividing the value by its local gradient. The width
+// swells and thins along each vein and some stretches fade out. `halo` > 0
+// also returns a soft falloff around the lines.
+function veins(w, h, seed, cells, warpAmt, width, halo) {
+  const base = fbm(w, h, cells, cells, 3, seed);
   const wx = fbm(w, h, 2, 2, 4, seed + 1);
   const wy = fbm(w, h, 2, 2, 4, seed + 2);
+  const wm = fbm(w, h, 5, 5, 3, seed + 3);
   const out = f32(w * h);
+  const hl = halo > 0 ? f32(w * h) : null;
   for (let y = 0, i = 0; y < h; y++) {
     for (let x = 0; x < w; x++, i++) {
-      const v = sample(base, w, h, x + 0.5 + wx[i] * warpAmt, y + 0.5 + wy[i] * warpAmt);
-      out[i] = 1 - sstep(0, width, Math.abs(v));
+      const sx = x + 0.5 + wx[i] * warpAmt;
+      const sy = y + 0.5 + wy[i] * warpAmt;
+      const v = sample(base, w, h, sx, sy);
+      const gx = sample(base, w, h, sx + 1, sy) - v;
+      const gy = sample(base, w, h, sx, sy + 1) - v;
+      const d = Math.abs(v) / (Math.sqrt(gx * gx + gy * gy) + 1e-6);
+      const m = wm[i];
+      const wd = width * (0.35 + 1.6 * clamp(m + 0.5));
+      const fade = sstep(-0.42, 0.05, m);
+      out[i] = (1 - sstep(wd - 0.6, wd + 0.6, d)) * fade;
+      if (hl) hl[i] = Math.exp(-d / (halo * (0.6 + clamp(m + 0.5)))) * (0.3 + fade * 0.7);
     }
   }
-  return out;
+  return hl ? { line: out, halo: hl } : out;
 }
 
 function spirefloor() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
-  const v1 = veins(w, h, 1701, 3, 70, 0.035);
-  const v2 = veins(w, h, 1704, 7, 40, 0.02);
+  const { w, h, R, G, B, H } = T;
+  const V1 = veins(w, h, 1701, 3, 70, 1.1, 7);
+  const v1 = V1.line;
+  const vh = V1.halo;
+  const v2 = veins(w, h, 1704, 7, 40, 0.5, 0);
   const cloud = fbm(w, h, 5, 5, 4, 1707);
   const fine = fbm(w, h, 128, 128, 1, 1708);
   const goldN = fbm(w, h, 64, 64, 2, 1709);
   const r = rng(1710);
   const offs = [];
-  for (let k = 0; k < 16; k++) offs.push([r() * 512, r() * 512, r(), r()]);
+  for (let k = 0; k < 16; k++) offs.push([Math.floor(r() * 512), Math.floor(r() * 512), r(), r()]);
   const blk = ramp([[0, '#060508'], [0.5, '#0e0c12'], [1, '#1c1822']]);
-  const vio = ramp([[0, '#120818'], [0.5, '#1f0f2a'], [1, '#33183f']]);
-  const bVein = C('#6a6276');
-  const vVein = C('#8a5aa8');
+  const vio = ramp([[0, '#110818'], [0.5, '#1e0f29'], [1, '#32183e']]);
+  const bVein = C('#7a7286');
+  const vVein = C('#9a6ab8');
   const gold = C('#c89a3a');
   const goldHi = C('#ecc66a');
   const gem = C('#7a3ab8');
@@ -2140,23 +2290,23 @@ function spirefloor() {
       const e = Math.min(dx, dy);
       const ck = (ti + tj) & 1;
       const o = offs[tj * 4 + ti];
-      const sx = x + o[0];
-      const sy = y + o[1];
-      const a = sample(v1, w, h, sx, sy);
-      const b = sample(v2, w, h, sx * 1.0, sy);
-      const cl = sample(cloud, w, h, sx, sy);
-      const k = lutIdx(0.5 + cl * 0.7 + fine[i] * 0.06);
+      const j = ((y + o[1]) & 511) * 512 + ((x + o[0]) & 511);
+      const a = v1[j];
+      const hb = vh[j];
+      const b = v2[j];
+      const cl = cloud[j];
+      const k = lutIdx(0.5 + cl * 0.7 + fine[i] * 0.06 + hb * 0.18);
       let cr;
       let cg;
       let cb;
       if (ck) {
-        cr = lerp(vio[k], vVein[0], a * 0.75 + b * 0.3);
-        cg = lerp(vio[k + 1], vVein[1], a * 0.75 + b * 0.3);
-        cb = lerp(vio[k + 2], vVein[2], a * 0.75 + b * 0.3);
+        cr = lerp(vio[k], vVein[0], a * 0.8 + b * 0.3);
+        cg = lerp(vio[k + 1], vVein[1], a * 0.8 + b * 0.3);
+        cb = lerp(vio[k + 2], vVein[2], a * 0.8 + b * 0.3);
       } else {
-        cr = lerp(blk[k], bVein[0], a * 0.7 + b * 0.25);
-        cg = lerp(blk[k + 1], bVein[1], a * 0.7 + b * 0.25);
-        cb = lerp(blk[k + 2], bVein[2], a * 0.7 + b * 0.25);
+        cr = lerp(blk[k], bVein[0], a * 0.75 + b * 0.28);
+        cg = lerp(blk[k + 1], bVein[1], a * 0.75 + b * 0.28);
+        cb = lerp(blk[k + 2], bVein[2], a * 0.75 + b * 0.28);
       }
       let z = 8 + (o[2] - 0.5) * 0.6 + cl * 0.15;
       // gold inlay along the joints, a groove either side, diamonds at corners
@@ -2190,7 +2340,7 @@ function spirefloor() {
 
 function wood() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const L = bondLayout(w, h, [64, 64, 64, 64, 64, 64, 64, 64], 1801, 200, 470);
   const fib = fbm(w, h, 6, 96, 3, 1802);
   const warp = fbm(w, h, 3, 12, 3, 1803);
@@ -2221,18 +2371,24 @@ function wood() {
       const s = sstep(-0.5, 0.5, e);
       let rc = (QLY - 32) * (0.8 + b.r1 * 0.5) + b.r2 * 40 + warp[i] * 14;
       let kd = 9;
-      for (const [ku, kv, kr] of knots[b.id]) {
+      const kn = knots[b.id];
+      for (let q = 0; q < kn.length; q++) {
+        const ku = kn[q][0];
+        const kv = kn[q][1];
+        const kr = kn[q][2];
         const dx = QLX - ku * b.w;
         const dy = QLY - kv;
         const g = Math.exp(-((dx * dx) / (kr * kr * 14) + (dy * dy) / (kr * kr * 2.2)));
         rc += g * kr * 2 * (dy < 0 ? -1 : 1);
-        const d = Math.hypot(dx / kr, dy / (kr * 0.8));
+        const ex = dx / kr;
+        const ey = dy / (kr * 0.8);
+        const d = Math.sqrt(ex * ex + ey * ey);
         if (d < kd) kd = d;
       }
       const sp = 5 + b.r3 * 4;
       const ring = fract(rc / sp);
       const line = sstep(0.7, 0.9, ring) * (1 - sstep(0.9, 1, ring) * 0.5);
-      const ck = b.r4 < 0.6 && Math.abs(crackN[i]) < 0.012 ? sstep(0.3, 0.6, weather[i]) : 0;
+      const ck = b.r4 < 0.35 && Math.abs(crackN[i]) < 0.007 ? sstep(0.35, 0.65, weather[i]) : 0;
       let v = 0.55 + fib[i] * 0.6 - line * 0.22 + fine[i] * 0.1 + (b.r5 - 0.5) * 0.2 - ck * 0.5;
       const knot = kd < 1 ? 1 - kd : 0;
       if (kd < 1.4) v -= sstep(1.4, 0.8, kd) * 0.25 + (fract(kd * 3) < 0.3 ? 0.08 : 0);
@@ -2296,20 +2452,20 @@ function thatch() {
     H[i] = 0;
   }
   const r = rng(1901);
-  const straw = ['#8a7a52', '#a08a5a', '#b49a62', '#7a6c4c', '#968a6e', '#c2a868', '#6e624a', '#a89870'].map(C);
+  const straw = ['#9a8350', '#b0945a', '#c4a464', '#8a7650', '#a89878', '#d0b070', '#7a6a48', '#bca070'].map(C);
   const sway = noise1(w, 8, 3, 1902);
   const c0 = [0, 0, 0];
   const c1 = [0, 0, 0];
   const cm = [0, 0, 0];
   for (let c = 0; c < 8; c++) {
     const y0 = c * 64;
-    for (let k = 0; k < 1800; k++) {
+    for (let k = 0; k < 1550; k++) {
       const x = r() * w;
       const ys = y0 + (r() - 0.35) * 14;
       const L = 56 + r() * 32;
       const a = Math.PI / 2 + (r() - 0.5) * 0.2 + sway[(x | 0) % w] * 0.25;
       const bend = (r() - 0.5) * 0.08;
-      const rad = 0.65 + r() * 0.5;
+      const rad = 0.7 + r() * 0.55;
       const col = straw[(r() * straw.length) | 0];
       const sh = 0.8 + r() * 0.35;
       for (let j = 0; j < 3; j++) {
@@ -2334,7 +2490,7 @@ function thatch() {
   const moss = C('#3e4226');
   const grey = C('#a49c8a');
   for (let i = 0; i < n; i++) {
-    const m = sstep(0.1, 0.35, mossN[i] + fine[i] * 0.2) * 0.55;
+    const m = sstep(0.15, 0.4, mossN[i] + fine[i] * 0.2) * 0.4;
     const g = sstep(0.05, 0.35, bleach[i]) * 0.35;
     const l = R[i] + G[i] + B[i];
     R[i] = lerp(lerp(R[i], moss[0] * l * 1.4, m), grey[0] * l * 0.6, g);
@@ -2346,7 +2502,7 @@ function thatch() {
 
 function rooftile() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const COLS = 8;
   const ROWS = 6;
   const cw = w / COLS;
@@ -2359,12 +2515,13 @@ function rooftile() {
   const mott = fbm(w, h, 16, 16, 4, 2002);
   const fine = fbm(w, h, 128, 128, 1, 2003);
   const patina = fbm(w, h, 4, 4, 3, 2004);
-  const LW = makeWorley(w, h, 40, 40, 2005, 0.9);
+  const lzone = fbm(w, h, 6, 6, 3, 2006);
+  const LW = makeWorley(w, h, 56, 56, 2005, 1);
   const lich = worleyFill(LW);
   const pal = ['#b0583a', '#9a4a30', '#c06a42', '#8a3e2a', '#a85a3a', '#b86848'].map(C);
   const dark = C('#4a3a34');
-  const lc1 = C('#b8a050');
-  const lc2 = C('#8e9a7a');
+  const lc1 = C('#b4a058');
+  const lc2 = C('#909a80');
   for (let y = 0, i = 0; y < h; y++) {
     const j = Math.floor(y / rh);
     for (let x = 0; x < w; x++, i++) {
@@ -2376,28 +2533,33 @@ function rooftile() {
       const lip = rh - 2 - Math.sin(u * Math.PI * 2 + t[4]) * 1.2;
       const ly = y + 0.5 - j * rh;
       const v = ly / lip;
-      const cross = Math.pow(Math.sin(Math.PI * clamp(u * 1.04 - 0.02)), 0.6);
-      let z = 2 + Math.min(v, 1) * 8 + cross * 6 + mott[i] * 0.6 + fine[i] * 0.2;
-      if (ly > lip) z = 2 + (1 - (ly - lip) / 3) * 6 + cross * 2;
-      z = lerp(z, 2 + cross * 2, sstep(0.95, 1.02, v));
+      const cross = Math.pow(Math.sin(Math.PI * clamp(u * 1.06 - 0.03)), 0.55);
+      let z = 2 + Math.min(v, 1) * 8 + cross * 9 + mott[i] * 0.6 + fine[i] * 0.2;
+      if (ly > lip) z = 2 + (1 - (ly - lip) / 3) * 6 + cross * 3;
+      z = lerp(z, 2 + cross * 3, sstep(0.95, 1.02, v));
       const c = pal[(t[0] * pal.length) | 0];
-      let kk = (0.82 + t[1] * 0.3) * (0.85 + mott[i] * 0.35 + fine[i] * 0.12) * (0.75 + cross * 0.3);
-      kk *= 0.55 + 0.45 * sstep(0, 0.2, v);
+      let kk = (0.82 + t[1] * 0.3) * (0.85 + mott[i] * 0.35 + fine[i] * 0.12) * (0.5 + cross * 0.55);
+      kk *= 0.5 + 0.5 * sstep(0, 0.22, v);
       let cr = c[0] * kk;
       let cg = c[1] * kk;
       let cb = c[2] * kk;
-      const p = sstep(0.05, 0.35, patina[i] + (t[2] - 0.5) * 0.4) * 0.55;
-      cr = lerp(cr, dark[0], p);
-      cg = lerp(cg, dark[1], p);
-      cb = lerp(cb, dark[2], p);
+      const p = sstep(0.05, 0.35, patina[i] + (t[2] - 0.5) * 0.4) * 0.5;
+      cr = lerp(cr, dark[0] * kk * 1.4, p);
+      cg = lerp(cg, dark[1] * kk * 1.4, p);
+      cb = lerp(cb, dark[2] * kk * 1.4, p);
+      // lichen in clustered, ragged rosettes
       const lk = lich.id[i];
-      if (LW.RA[lk] < 0.14 && lich.f1[i] < 2.5 + LW.RB[lk] * 4) {
-        const lcol = LW.RC[lk] < 0.6 ? lc1 : lc2;
-        const a = clamp(2.5 + LW.RB[lk] * 4 - lich.f1[i]) * 0.75;
-        cr = lerp(cr, lcol[0], a);
-        cg = lerp(cg, lcol[1], a);
-        cb = lerp(cb, lcol[2], a);
-        z += a * 0.4;
+      const zone = sstep(0.05, 0.3, lzone[i]);
+      if (zone > 0 && LW.RA[lk] < 0.35) {
+        const rad = (1.5 + LW.RB[lk] * 4) * (0.8 + mott[i] * 0.6 + fine[i] * 0.5);
+        if (lich.f1[i] < rad) {
+          const lcol = LW.RC[lk] < 0.6 ? lc1 : lc2;
+          const a = clamp(rad - lich.f1[i]) * 0.7 * zone;
+          cr = lerp(cr, lcol[0] * (0.8 + fine[i]), a);
+          cg = lerp(cg, lcol[1] * (0.8 + fine[i]), a);
+          cb = lerp(cb, lcol[2] * (0.8 + fine[i]), a);
+          z += a * 0.4;
+        }
       }
       R[i] = cr;
       G[i] = cg;
@@ -2410,7 +2572,7 @@ function rooftile() {
 
 function canvasTex() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const STR = 12;
   const sw = w / STR;
   const fold = fbm(w, h, 4, 2, 3, 2101);
@@ -2477,47 +2639,43 @@ function canvasTex() {
 
 function marble() {
   const T = new Tex(512, 512);
-  const { w, h, n, R, G, B, H } = T;
+  const { w, h, R, G, B, H } = T;
   const L = bondLayout(w, h, [128, 128, 128, 128], 2201, 190, 330);
-  const v1 = veins(w, h, 2202, 3, 80, 0.03);
-  const v2 = veins(w, h, 2205, 7, 40, 0.018);
+  const V1 = veins(w, h, 2202, 3, 80, 1.2, 6);
+  const v2 = veins(w, h, 2205, 7, 40, 0.7, 0);
   const cloud = fbm(w, h, 5, 5, 4, 2208);
   const fine = fbm(w, h, 128, 128, 1, 2209);
-  const base = C('#e4e0d8');
+  const base = C('#e6e2da');
   const warm = C('#ddd2c0');
-  const vd = C('#76747e');
-  const vl = C('#a8a6ac');
-  const stainC = C('#c4a882');
+  const vd = C('#74727e');
+  const vl = C('#a6a4ac');
+  const stainC = C('#bca480');
   const joint = C('#b8b2a6');
   for (let y = 0, i = 0; y < h; y++) {
     for (let x = 0; x < w; x++, i++) {
       bondAt(L, x + 0.5, y + 0.5);
-      const QLX = BQ[0];
-      const QLY = BQ[1];
-      const QDX = BQ[2];
-      const QDY = BQ[3];
       const b = QB;
-      const e = rrect(QDX, QDY, 2) - 1.1;
+      const e = rrect(BQ[2], BQ[3], 2) - 1.1;
       const s = sstep(-0.5, 0.5, e);
-      const sx = x + b.r1 * 512;
-      const sy = y + b.r2 * 512;
-      const a = sample(v1, w, h, sx, sy);
-      const c2 = sample(v2, w, h, sx, sy);
-      const cl = sample(cloud, w, h, sx, sy);
+      const j = ((y + ((b.r2 * 512) | 0)) & 511) * 512 + ((x + ((b.r1 * 512) | 0)) & 511);
+      const a = V1.line[j];
+      const hb = V1.halo[j];
+      const c2 = v2[j];
+      const cl = cloud[j];
       const tw = b.r3 * 0.5 + cl * 0.4;
-      let cr = lerp(base[0], warm[0], tw) * (0.96 + cl * 0.08 + fine[i] * 0.02);
-      let cg = lerp(base[1], warm[1], tw) * (0.96 + cl * 0.08 + fine[i] * 0.02);
-      let cb = lerp(base[2], warm[2], tw) * (0.96 + cl * 0.08 + fine[i] * 0.02);
-      cr = lerp(cr, vl[0], c2 * 0.45);
-      cg = lerp(cg, vl[1], c2 * 0.45);
-      cb = lerp(cb, vl[2], c2 * 0.45);
-      const halo = sample(v1, w, h, sx + 2, sy + 2);
-      cr = lerp(cr, stainC[0], halo * 0.15 * b.r4);
-      cg = lerp(cg, stainC[1], halo * 0.15 * b.r4);
-      cb = lerp(cb, stainC[2], halo * 0.15 * b.r4);
-      cr = lerp(cr, vd[0], a * 0.8);
-      cg = lerp(cg, vd[1], a * 0.8);
-      cb = lerp(cb, vd[2], a * 0.8);
+      const kk = 0.97 + cl * 0.08 + fine[i] * 0.02 - hb * 0.13;
+      let cr = lerp(base[0], warm[0], tw) * kk;
+      let cg = lerp(base[1], warm[1], tw) * kk;
+      let cb = lerp(base[2], warm[2], tw) * kk;
+      cr = lerp(cr, stainC[0], hb * 0.22 * b.r4);
+      cg = lerp(cg, stainC[1], hb * 0.22 * b.r4);
+      cb = lerp(cb, stainC[2], hb * 0.22 * b.r4);
+      cr = lerp(cr, vl[0], c2 * 0.55);
+      cg = lerp(cg, vl[1], c2 * 0.55);
+      cb = lerp(cb, vl[2], c2 * 0.55);
+      cr = lerp(cr, vd[0], a * 0.65);
+      cg = lerp(cg, vd[1], a * 0.65);
+      cb = lerp(cb, vd[2], a * 0.65);
       R[i] = lerp(joint[0], cr, s);
       G[i] = lerp(joint[1], cg, s);
       B[i] = lerp(joint[2], cb, s);
@@ -2538,13 +2696,15 @@ function water() {
   const Cx = new Float32Array(w);
   const Sy = new Float32Array(h);
   const Cy = new Float32Array(h);
-  for (let k = 0; k < 16; k++) {
-    const ang = 0.6 + (r() - 0.5) * 1.6;
-    const f = 3 + Math.pow(r(), 1.6) * 24;
+  // Wind ripples: a spread of travelling waves, all with whole numbers of
+  // cycles across the tile so they wrap, longer ones stronger.
+  for (let k = 0; k < 22; k++) {
+    const ang = 0.6 + (r() - 0.5) * 2.4;
+    const f = 4 + Math.pow(r(), 1.4) * 52;
     const kx = Math.round(Math.cos(ang) * f);
     const ky = Math.round(Math.sin(ang) * f);
     if (kx === 0 && ky === 0) continue;
-    const amp = 1 / Math.pow(Math.hypot(kx, ky), 1.1);
+    const amp = 1 / Math.pow(Math.hypot(kx, ky), 0.8);
     const ph = r() * TAU;
     for (let x = 0; x < w; x++) {
       Sx[x] = Math.sin((TAU * kx * x) / w + ph);
@@ -2560,74 +2720,74 @@ function water() {
       for (let x = 0; x < w; x++, i++) sum[i] += amp * (Sx[x] * cy + Cx[x] * sy);
     }
   }
-  const chop = fbm(w, h, 16, 16, 3, 2302);
+  const chop = fbm(w, h, 24, 24, 3, 2302);
+  const swell = fbm(w, h, 3, 3, 3, 2304);
   const refl = fbm(w, h, 2, 5, 3, 2303);
   let lo = Infinity;
   let hi = -Infinity;
   for (let i = 0; i < n; i++) {
-    // sharpen the crests a little
-    const v = sum[i] + chop[i] * 0.12;
+    // ripples gather in patches (cat's-paws) where the wind touches down
+    const v = sum[i] * (0.55 + sstep(-0.3, 0.3, swell[i]) * 0.65) + chop[i] * 0.35;
     sum[i] = v;
     if (v < lo) lo = v;
     if (v > hi) hi = v;
   }
-  const deep = C('#0a2023');
-  const mid = C('#123236');
-  const crest = C('#28585a');
-  const sky = C('#3c6c6c');
+  const deep = C('#0a1f22');
+  const mid = C('#10292b');
+  const crest = C('#1d4444');
+  const sky = C('#2f5c5c');
   for (let i = 0; i < n; i++) {
     const t = (sum[i] - lo) / (hi - lo);
-    const c = Math.pow(t, 1.6);
-    let cr = t < 0.5 ? lerp(deep[0], mid[0], t * 2) : lerp(mid[0], crest[0], (t - 0.5) * 2);
-    let cg = t < 0.5 ? lerp(deep[1], mid[1], t * 2) : lerp(mid[1], crest[1], (t - 0.5) * 2);
-    let cb = t < 0.5 ? lerp(deep[2], mid[2], t * 2) : lerp(mid[2], crest[2], (t - 0.5) * 2);
-    const rf = sstep(0.0, 0.35, refl[i]) * 0.35;
+    const c = t * t * (3 - 2 * t);
+    let cr = lerp(deep[0], mid[0], c);
+    let cg = lerp(deep[1], mid[1], c);
+    let cb = lerp(deep[2], mid[2], c);
+    const cs = sstep(0.55, 1, t) * 0.25;
+    cr = lerp(cr, crest[0], cs);
+    cg = lerp(cg, crest[1], cs);
+    cb = lerp(cb, crest[2], cs);
+    const rf = sstep(0, 0.45, refl[i]) * 0.22;
     R[i] = lerp(cr, sky[0], rf);
     G[i] = lerp(cg, sky[1], rf);
     B[i] = lerp(cb, sky[2], rf);
-    H[i] = c * 7;
+    H[i] = c * 6;
   }
-  return finish(T, 0.8, []);
+  return finish(T, 1.6, []);
 }
 
 function gold() {
   const T = new Tex(512, 512);
   const { w, h, n, R, G, B, H } = T;
   const L = bondLayout(w, h, [43, 43, 42, 43, 43, 42, 43, 43, 42, 43, 43, 42], 2401, 36, 50);
-  const ham = worleyFill(makeWorley(w, h, 26, 26, 2402, 0.9));
-  const brush = fbm(w, h, 4, 128, 2, 2403);
-  const tone = fbm(w, h, 6, 6, 4, 2404);
+  const ham = worleyFill(makeWorley(w, h, 30, 30, 2402, 0.9));
+  const brush = fbm(w, h, 2, 96, 2, 2403);
+  const tone = fbm(w, h, 3, 3, 4, 2404);
   const wear = norm(fbm(w, h, 5, 5, 5, 2405));
   const fine = fbm(w, h, 128, 128, 1, 2406);
-  const goldL = ramp([[0, '#7a5418'], [0.3, '#b08430'], [0.6, '#d6aa4c'], [0.85, '#ecc86e'], [1, '#f6dc96']]);
-  const bole = C('#7a3a22');
+  const wob = fbm(w, h, 24, 24, 2, 2407);
+  const goldL = ramp([[0, '#5e3e14'], [0.3, '#9a7028'], [0.55, '#c49640'], [0.8, '#e0b862'], [1, '#f2d690']]);
+  const bronze = C('#7a5426');
   for (let y = 0, i = 0; y < h; y++) {
     for (let x = 0; x < w; x++, i++) {
-      bondAt(L, x + 0.5 + tone[i] * 3, y + 0.5 + fine[i] * 0.6);
-      const QLX = BQ[0];
-      const QLY = BQ[1];
-      const QDX = BQ[2];
-      const QDY = BQ[3];
+      bondAt(L, x + 0.5 + wob[i] * 2, y + 0.5 + wob[(i + 4099) & (n - 1)] * 2);
       const b = QB;
-      const e = Math.min(QDX, QDY);
-      const seam = Math.exp(-e * e * 0.8);
-      const dimple = Math.pow(clamp(ham.f1[i] / 12), 2);
-      let v = 0.6 + tone[i] * 0.45 + brush[i] * 0.2 + (b.r1 - 0.5) * 0.12 - dimple * 0.12 + fine[i] * 0.05 - seam * 0.12;
+      // each leaf overlaps its neighbours along its top and left edges
+      const lap = Math.min(BQ[0], BQ[1]);
+      const seam = Math.exp(-lap * lap * 0.9);
+      const dimple = clamp(ham.f1[i] / 11);
+      const dd = dimple * dimple;
+      const shadow = Math.exp(-((BQ[0] - b.w) ** 2) * 0.5) + Math.exp(-((BQ[1] - b.h) ** 2) * 0.5);
+      let v = 0.64 + tone[i] * 0.22 + brush[i] * 0.08 + (b.r1 - 0.5) * 0.1 - dd * 0.05 + fine[i] * 0.03 + seam * 0.05 - shadow * 0.06;
+      const wr = sstep(0.86, 0.97, wear[i] + fine[i] * 0.05) * 0.3;
+      v -= wr * 0.15;
       const k = lutIdx(v);
-      let cr = goldL[k];
-      let cg = goldL[k + 1];
-      let cb = goldL[k + 2];
-      const wr = sstep(0.8, 0.86, wear[i] + fine[i] * 0.08) * 0.65;
-      cr = lerp(cr, bole[0], wr);
-      cg = lerp(cg, bole[1], wr);
-      cb = lerp(cb, bole[2], wr);
-      R[i] = cr;
-      G[i] = cg;
-      B[i] = cb;
-      H[i] = tone[i] * 2 - dimple * 1.6 + brush[i] * 0.25 + seam * 0.5 - wr * 0.6;
+      R[i] = lerp(goldL[k], bronze[0], wr);
+      G[i] = lerp(goldL[k + 1], bronze[1], wr);
+      B[i] = lerp(goldL[k + 2], bronze[2], wr);
+      H[i] = tone[i] * 1.5 - dd * 1.1 + brush[i] * 0.2 + seam * 0.45 - wr * 0.4;
     }
   }
-  return finish(T, 1.0, [[2, 0.06, 0.02], [10, 0.03, 0.01]]);
+  return finish(T, 1.0, [[2, 0.05, 0.02], [10, 0.025, 0.008]]);
 }
 
 /* ================================================================ door */
@@ -2636,7 +2796,7 @@ function door() {
   const W = 512;
   const HH = 768;
   const T = new Tex(W, HH, false);
-  const { n, R, G, B, H } = T;
+  const { R, G, B, H } = T;
   const CX = 256;
   const SPRING = 330;
   const RIN = 150;
@@ -2645,12 +2805,12 @@ function door() {
   const X1 = CX + RIN;
   const r = rng(2501);
   const wall = bondLayout(W, HH, rowHeights(HH, [44, 48, 52], r), 2502, 60, 130);
-  const face = fbm(W, HH, 8, 12, 5, 2503);
+  const face = fbm(W, HH, 8, 12, 4, 2503);
   const fine = fbm(W, HH, 128, 192, 1, 2504);
   const chip = fbm(W, HH, 32, 48, 3, 2505);
   const grainW = fbm(W, HH, 64, 4, 3, 2506);
   const grainR = fbm(W, HH, 12, 3, 3, 2507);
-  const weather = fbm(W, HH, 4, 6, 4, 2508);
+  const weather = fbm(W, HH, 4, 6, 3, 2508);
   const streak = fbm(W, HH, 40, 3, 3, 2509);
   const stPal = ['#8a8274', '#9a9080', '#7c766c', '#a09684', '#8e8576'].map(C);
   const surPal = ['#a49478', '#9a8a70', '#ae9e82', '#94866c'].map(C);
@@ -2671,7 +2831,7 @@ function door() {
       const py = y + 0.5;
       const dx = px - CX;
       const dy = py - SPRING;
-      const rr = Math.hypot(dx, dy);
+      const rr = Math.sqrt(dx * dx + dy * dy);
       // signed distance into the opening (positive inside)
       const dOpen = dy >= 0 ? Math.min(px - X0, X1 - px) : RIN - rr;
       if (dOpen > -0.5) {
@@ -2701,8 +2861,9 @@ function door() {
         if (dOpen > 0.5) continue;
       }
       // ---- masonry: voussoirs, jambs or the wall behind
-      let e;
-      let pal;
+      let e = 0;
+      let found = false;
+      let pal = stPal;
       let rn0 = 0;
       let rn1 = 0;
       let rn2 = 0;
@@ -2715,6 +2876,7 @@ function door() {
         const outer = ROUT + (kv === (NV >> 1) ? 18 : 0);
         const da = Math.min(phi - a0, a0 + wedge - phi) * rr;
         e = Math.min(da, rr - RIN, outer - rr);
+        found = true;
         pal = surPal;
         rn0 = vrand[kv][0];
         rn1 = vrand[kv][1];
@@ -2727,6 +2889,7 @@ function door() {
         if (ex < jw) {
           const ly = dy - course * 62;
           e = Math.min(ly, 62 - ly, jw - ex, ex);
+          found = true;
           pal = surPal;
           const jr = jrand[(course * 2 + (px < X0 ? 0 : 1)) % 12];
           rn0 = jr[0];
@@ -2735,10 +2898,8 @@ function door() {
           zBase = 22;
         }
       }
-      if (e === undefined) {
+      if (!found) {
         bondAt(wall, px, py);
-        const QLX = BQ[0];
-        const QLY = BQ[1];
         const QDX = BQ[2];
         const QDY = BQ[3];
         e = rrect(QDX, QDY, 3);
@@ -2777,7 +2938,7 @@ function door() {
   const iron = C('#26262a');
   const ironHi = C('#4a4a50');
   const rust = C('#6a3a1e');
-  const rustN = fbm(W, HH, 16, 24, 3, 2511);
+  const rustN = fbm(W, HH, 16, 24, 2, 2511);
   const ham = worleyFill(makeWorley(W, HH, 64, 96, 2512, 0.9));
   const ironPx = (i, z, a, hiK) => {
     const rs = sstep(0.12, 0.3, rustN[i] + fine[i] * 0.2) * 0.75;
@@ -2879,7 +3040,7 @@ function door() {
       const i = y * W + x;
       const e = Math.min(y + 0.5 - 676, 724 - y - 0.5, x + 0.5 - (RX - 13), RX + 13 - x - 0.5);
       ironPx(i, 10 + sstep(0, 3, e) * 1.5, clamp(e + 0.5), e < 2 ? 0.5 : 0);
-      const kd = Math.hypot(x + 0.5 - RX, y + 0.5 - 692);
+      const kd = Math.sqrt((x + 0.5 - RX) ** 2 + (y + 0.5 - 692) ** 2);
       const slot = Math.abs(x + 0.5 - RX) < 2 && y > 692 && y < 712;
       if (kd < 4.5 || slot) {
         T.blend3(i, 0.02, 0.02, 0.02, 0.95);
@@ -2977,9 +3138,9 @@ function runeband() {
       H[i] = z;
       const ig = mg + GG[i] * 0.4;
       const iv = mv + GV[i] * 0.4;
-      E[0][i] = clamp(gE[0] * ig + vE[0] * iv + (mg * mg + mv * mv) * 0.25);
-      E[1][i] = clamp(gE[1] * ig + vE[1] * iv + (mg * mg + mv * mv) * 0.2);
-      E[2][i] = clamp(gE[2] * ig + vE[2] * iv + (mg * mg * 0.1 + mv * mv) * 0.25);
+      E[0][i] = clamp(gE[0] * ig * 0.9 + vE[0] * iv + (mg * mg + mv * mv) * 0.2);
+      E[1][i] = clamp(gE[1] * ig * 0.8 + vE[1] * iv + mg * mg * 0.1 + mv * mv * 0.2);
+      E[2][i] = clamp(gE[2] * ig + vE[2] * iv + (mg * mg * 0.04 + mv * mv) * 0.25);
     }
   }
   return finish(T, 1.0, [[2, 0.07, 0.03], [8, 0.02, 0.01]]);
@@ -3012,184 +3173,332 @@ export function makeHD(name) {
 
 let BACKDROP = null;
 
+// 2D value noise over a 256 x 256 table that wraps.
+function vnoise(tab, x, y) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  let fx = x - xi;
+  let fy = y - yi;
+  fx = fx * fx * (3 - 2 * fx);
+  fy = fy * fy * (3 - 2 * fy);
+  const x0 = xi & 255;
+  const x1 = (xi + 1) & 255;
+  const y0 = (yi & 255) << 8;
+  const y1 = ((yi + 1) & 255) << 8;
+  const a = tab[y0 + x0];
+  const b = tab[y0 + x1];
+  const c = tab[y1 + x0];
+  const d = tab[y1 + x1];
+  return a + (b - a) * fx + (c - a + (d - c - b + a) * fx) * fy;
+}
+
+const COS_N = 2048;
+const COS_LO = -6;
+const COS_K = COS_N / 14;
+const COS = new Float32Array(COS_N + 1);
+for (let k = 0; k <= COS_N; k++) COS[k] = Math.cos(COS_LO + k / COS_K);
+
+// Shade one column of one range, front to back under what is already there.
+function bdColumn(S, x) {
+  const { W, HH, peaks, solid, ce, cp, tab, BUF, Rg } = S;
+  let m = 0;
+  const px = x + 0.5;
+  const bg = 1 - Math.abs(S.big[x]) * 2.2;
+  const jg = -bg * Rg.big + S.jag[x] * Rg.jag + S.fineJ[x] * Rg.jag * 0.35;
+  const sol = solid[x];
+  for (let k = 0; k < peaks.length; k++) {
+    const p = peaks[k];
+    let dx = px - p.x;
+    dx -= Math.round(dx / W) * W;
+    const ax = dx < 0 ? -dx : dx;
+    // steep near the summit, flaring onto broad shoulders
+    const e = p.y + (dx < 0 ? p.sl : p.sr) * (ax * 0.75 + 70 * (1 - Math.exp(-ax / 70))) + jg * Math.min(1, ax / 70);
+    if (e >= sol) continue;
+    let j = m++;
+    while (j > 0 && ce[j - 1] > e) {
+      ce[j] = ce[j - 1];
+      cp[j] = cp[j - 1];
+      j--;
+    }
+    ce[j] = e;
+    cp[j] = k;
+  }
+  if (m === 0) return;
+  const top = ce[0];
+  const yTop = Math.max(0, Math.floor(top));
+  const yMin = Rg.top[0];
+  const ySpan = Rg.base - Rg.top[0];
+  const haze = Rg.haze;
+  const mist = Rg.mist;
+  const sh = Rg.shadow;
+  const rk = Rg.rock;
+  const lt = Rg.lit;
+  const ss = Rg.snowSh;
+  const sl0 = Rg.snowLit;
+  const hz = Rg.hazeCol;
+  const ms = Rg.mistCol;
+  const rm = Rg.rim;
+  let ci = 0;
+  let p = peaks[cp[0]];
+  let pi = -1;
+  let frontE = 0;
+  let dxc = 0;
+  let py0 = 0;
+  let pox = 0;
+  let poy = 0;
+  let pk = 0;
+  let psnow = 0;
+  let psl = 0;
+  let psr = 0;
+  let sp = p.sp;
+  const crx = px * 0.0625;
+  for (let y = yTop; y < sol; y++) {
+    while (ci < m && ce[ci] <= y + 1) {
+      const q = peaks[cp[ci]];
+      if (pi < 0 || q.y > py0) {
+        p = q;
+        pi = cp[ci];
+        frontE = ce[ci];
+        py0 = q.y;
+        pox = q.ox;
+        poy = q.oy;
+        pk = q.ribK;
+        psnow = q.snow;
+        psl = q.sl;
+        psr = q.sr;
+        sp = q.sp;
+        dxc = px - q.x;
+        dxc -= Math.round(dxc / W) * W;
+      }
+      ci++;
+    }
+    const py = y + 0.5;
+    const dy = py - py0 > 0.5 ? py - py0 : 0.5;
+    const sx = dxc - sp[dy | 0];
+    const slope = sx < 0 ? psl : psr;
+    let q = (sx * slope * 1.1) / (dy + 2);
+    q = q < -1 ? -1 : q > 1 ? 1 : q;
+    // ribs fan out down the fall line from the summit
+    // (value noise written out inline: four lookups per pixel)
+    let rib;
+    {
+      const nx = q * pk + pox;
+      const ny = Math.sqrt(dy) * 0.32 + poy;
+      const xi = Math.floor(nx);
+      const yi = Math.floor(ny);
+      let fx = nx - xi;
+      let fy = ny - yi;
+      fx = fx * fx * (3 - 2 * fx);
+      fy = fy * fy * (3 - 2 * fy);
+      const r0 = (yi & 255) << 8;
+      const r1 = ((yi + 1) & 255) << 8;
+      const a0 = tab[r0 + (xi & 255)];
+      const b0 = tab[r0 + ((xi + 1) & 255)];
+      const c0 = tab[r1 + (xi & 255)];
+      const d0 = tab[r1 + ((xi + 1) & 255)];
+      rib = a0 + (b0 - a0) * fx + (c0 - a0 + (d0 - c0 - b0 + a0) * fx) * fy;
+    }
+    let rib2;
+    {
+      const nx = q * pk * 3.2 + pox + 50;
+      const ny = dy * 0.014 + poy;
+      const xi = Math.floor(nx);
+      const yi = Math.floor(ny);
+      let fx = nx - xi;
+      let fy = ny - yi;
+      fx = fx * fx * (3 - 2 * fx);
+      fy = fy * fy * (3 - 2 * fy);
+      const r0 = (yi & 255) << 8;
+      const r1 = ((yi + 1) & 255) << 8;
+      const a0 = tab[r0 + (xi & 255)];
+      const b0 = tab[r0 + ((xi + 1) & 255)];
+      const c0 = tab[r1 + (xi & 255)];
+      const d0 = tab[r1 + ((xi + 1) & 255)];
+      rib2 = a0 + (b0 - a0) * fx + (c0 - a0 + (d0 - c0 - b0 + a0) * fx) * fy;
+    }
+    let crag;
+    {
+      const nx = crx;
+      const ny = py * 0.0625 + poy;
+      const xi = Math.floor(nx);
+      const yi = Math.floor(ny);
+      let fx = nx - xi;
+      let fy = ny - yi;
+      fx = fx * fx * (3 - 2 * fx);
+      fy = fy * fy * (3 - 2 * fy);
+      const r0 = (yi & 255) << 8;
+      const r1 = ((yi + 1) & 255) << 8;
+      const a0 = tab[r0 + (xi & 255)];
+      const b0 = tab[r0 + ((xi + 1) & 255)];
+      const c0 = tab[r1 + (xi & 255)];
+      const d0 = tab[r1 + ((xi + 1) & 255)];
+      crag = a0 + (b0 - a0) * fx + (c0 - a0 + (d0 - c0 - b0 + a0) * fx) * fy;
+    }
+    let grit;
+    {
+      const nx = crx * 4 + 17;
+      const ny = py * 0.25 + poy * 3;
+      const xi = Math.floor(nx);
+      const yi = Math.floor(ny);
+      let fx = nx - xi;
+      let fy = ny - yi;
+      fx = fx * fx * (3 - 2 * fx);
+      fy = fy * fy * (3 - 2 * fy);
+      const r0 = (yi & 255) << 8;
+      const r1 = ((yi + 1) & 255) << 8;
+      const a0 = tab[r0 + (xi & 255)];
+      const b0 = tab[r0 + ((xi + 1) & 255)];
+      const c0 = tab[r1 + (xi & 255)];
+      const d0 = tab[r1 + ((xi + 1) & 255)];
+      grit = a0 + (b0 - a0) * fx + (c0 - a0 + (d0 - c0 - b0 + a0) * fx) * fy;
+    }
+    // facing angle across the cone, bent by the ribs; the sun is low on the left
+    const th = q * (1.1 + 0.5 * q * q) + (rib - 0.5) * 1.25 + (rib2 - 0.5) * 0.75 + (crag - 0.5) * 0.4 + (grit - 0.5) * 0.35;
+    let cf = (th + 1.318 - COS_LO) * COS_K;
+    cf = cf < 0 ? 0 : cf > COS_N - 1 ? COS_N - 1 : cf;
+    const ck = cf | 0;
+    let lit = 0.878 * (COS[ck] + (COS[ck + 1] - COS[ck]) * (cf - ck)) + 0.1;
+    lit = lit < 0 ? 0 : lit > 1 ? 1 : lit;
+    // faceted: faces snap toward lit or shadowed with crisp edges
+    let fs = (lit - 0.2) * 4;
+    fs = fs < 0 ? 0 : fs > 1 ? 1 : fs;
+    lit = lit * 0.45 + fs * fs * (3 - 2 * fs) * 0.55;
+    const l2 = lit * lit;
+    const lm = lit * 1.7 > 1 ? 1 : lit * 1.7;
+    const kr = 0.78 + crag * 0.3 + grit * 0.16;
+    let cr = (sh[0] + (rk[0] + (lt[0] - rk[0]) * l2 - sh[0]) * lm) * kr;
+    let cg = (sh[1] + (rk[1] + (lt[1] - rk[1]) * l2 - sh[1]) * lm) * kr;
+    let cb = (sh[2] + (rk[2] + (lt[2] - rk[2]) * l2 - sh[2]) * lm) * kr;
+    // a snow cap that reaches down the gullies in long tongues
+    const sline = psnow * (0.55 + rib2 * 1.1 + (rib - 0.5) * 0.5) + (grit - 0.5) * 6;
+    let snow = (sline + 5 - dy) / 10;
+    snow = snow < 0 ? 0 : snow > 1 ? 1 : snow;
+    snow *= snow * (3 - 2 * snow);
+    if (snow > 0) {
+      const sk = 0.88 + crag * 0.16 + grit * 0.08;
+      cr += ((ss[0] + (sl0[0] - ss[0]) * lit) * sk - cr) * snow;
+      cg += ((ss[1] + (sl0[1] - ss[1]) * lit) * sk - cg) * snow;
+      cb += ((ss[2] + (sl0[2] - ss[2]) * lit) * sk - cb) * snow;
+    }
+    // warm rim light along left-facing ridges
+    const de = py - frontE;
+    if (de < 7 && sx < 0) {
+      let rr = (1 - de / 7) * 0.6 * (-q * 3 > 1 ? 1 : -q * 3);
+      if (rr < 0) rr = 0;
+      cr += (rm[0] - cr) * rr;
+      cg += (rm[1] - cg) * rr;
+      cb += (rm[2] - cb) * rr;
+    }
+    // haze, thickening into valley mist toward the foot of the range
+    let t = (py - yMin) / ySpan;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const mt = mist * t * t;
+    cr += (hz[0] - cr) * haze;
+    cg += (hz[1] - cg) * haze;
+    cb += (hz[2] - cb) * haze;
+    cr += (ms[0] - cr) * mt;
+    cg += (ms[1] - cg) * mt;
+    cb += (ms[2] - cb) * mt;
+    let cov = y === yTop ? y + 1 - top : 1;
+    cov = cov < 0 ? 0 : cov > 1 ? 1 : cov;
+    // column-major RGBA, so walking down a column stays in cache
+    const o = (x * HH + y) * 4;
+    const al = cov * (1 - BUF[o + 3]);
+    BUF[o] += cr * al;
+    BUF[o + 1] += cg * al;
+    BUF[o + 2] += cb * al;
+    BUF[o + 3] += al;
+  }
+  solid[x] = Math.min(sol, yTop + 1);
+}
+
 // A 4096 x 768 mountain panorama for the horizon ring: three ranges, far to
-// near, each a crowd of cones whose faces are shaded from a low sun on the
-// left, carved into ribs and gullies that fan down from each summit, capped
-// with snow and faded into haze toward their feet. Transparent above the
-// ridge line, opaque below, and the left and right edges meet.
+// near, each a crowd of peaks with steep summits on broad shoulders. Faces
+// are shaded from a low sun on the left and carved into ribs and gullies that
+// fan down from each summit; snow lies on the upper ribs and streaks down the
+// gullies, and each range fades into haze and valley mist toward its foot,
+// the far ones paler and bluer. Transparent above the ridge line, opaque
+// below, and the left and right edges meet.
 export function makeHDBackdrop() {
   if (BACKDROP) return BACKDROP;
   const W = 4096;
   const HH = 768;
   const N = W * HH;
-  const CR = new Float32Array(N);
-  const CG = new Float32Array(N);
-  const CB = new Float32Array(N);
-  const CA = new Float32Array(N);
-  const NT = 256;
-  const tab = new Float32Array(NT * NT);
+  const BUF = new Float32Array(N * 4);
+  const tab = new Float32Array(65536);
   {
     const r = rng(9001);
     for (let k = 0; k < tab.length; k++) tab[k] = r();
   }
-  const vn = (x, y) => {
-    const xi = Math.floor(x);
-    const yi = Math.floor(y);
-    let fx = x - xi;
-    let fy = y - yi;
-    fx = fx * fx * (3 - 2 * fx);
-    fy = fy * fy * (3 - 2 * fy);
-    const x0 = xi & 255;
-    const x1 = (xi + 1) & 255;
-    const y0 = (yi & 255) * NT;
-    const y1 = ((yi + 1) & 255) * NT;
-    const a = tab[y0 + x0];
-    const b = tab[y0 + x1];
-    const c = tab[y1 + x0];
-    const d = tab[y1 + x1];
-    return a + (b - a) * fx + (c - a + (d - c - b + a) * fx) * fy;
-  };
-  const wdx = (a, b) => {
-    let d = a - b;
-    d -= Math.round(d / W) * W;
-    return d;
-  };
   const ranges = [
     {
-      seed: 3, count: 34, top: [430, 575], slope: [0.55, 1.05], snow: [16, 46], snowTop: 470, jag: 10, base: HH,
-      haze: 0.06, mist: 0.55, hazeCol: C('#3c3f5e'), mistCol: C('#4a4a68'),
-      shadow: C('#15161f'), rock: C('#3a3340'), lit: C('#a8705c'), snowSh: C('#6a76a4'), snowLit: C('#ffd6bc'), rim: C('#ffb27a'),
+      seed: 3, count: 30, top: [440, 600], slope: [0.42, 0.8], snow: [10, 34], snowTop: 490, jag: 7, big: 26, base: HH,
+      haze: 0.04, hazeCol: C('#30324a'), mist: 0.55, mistCol: C('#3c3c58'),
+      shadow: C('#0d0e16'), rock: C('#1f1e28'), lit: C('#5c4440'), snowSh: C('#525e88'), snowLit: C('#f0c4ac'), rim: C('#ffa86e'),
     },
     {
-      seed: 2, count: 24, top: [290, 460], slope: [0.6, 1.1], snow: [28, 80], snowTop: 420, jag: 9, base: 640,
-      haze: 0.3, mist: 0.5, hazeCol: C('#5e6690'), mistCol: C('#7a7fa8'),
-      shadow: C('#22253a'), rock: C('#4a4658'), lit: C('#b47c6a'), snowSh: C('#7a88b8'), snowLit: C('#ffdcc6'), rim: C('#ffbc8a'),
+      seed: 2, count: 21, top: [300, 470], slope: [0.42, 0.85], snow: [26, 90], snowTop: 440, jag: 8, big: 34, base: 660,
+      haze: 0.26, hazeCol: C('#545e88'), mist: 0.55, mistCol: C('#6c72a0'),
+      shadow: C('#191c30'), rock: C('#34364a'), lit: C('#8c6c6c'), snowSh: C('#7482b4'), snowLit: C('#ffd6c0'), rim: C('#ffba86'),
     },
     {
-      seed: 1, count: 16, top: [130, 320], slope: [0.5, 0.95], snow: [50, 130], snowTop: 330, jag: 8, base: 560,
-      haze: 0.55, mist: 0.45, hazeCol: C('#9a9ec4'), mistCol: C('#b0b0cc'),
-      shadow: C('#3a3e5c'), rock: C('#5a5872'), lit: C('#c08c80'), snowSh: C('#8a98c8'), snowLit: C('#ffe4d2'), rim: C('#ffc8a0'),
+      seed: 1, count: 14, top: [120, 320], slope: [0.36, 0.72], snow: [60, 160], snowTop: 340, jag: 8, big: 44, base: 590,
+      haze: 0.5, hazeCol: C('#8c92bc'), mist: 0.5, mistCol: C('#a6a8ca'),
+      shadow: C('#363a5a'), rock: C('#565672'), lit: C('#bc8e86'), snowSh: C('#8896c4'), snowLit: C('#ffe0cc'), rim: C('#ffc8a0'),
     },
   ];
   const solid = new Int32Array(W).fill(HH);
-  const ce = new Float64Array(64);
-  const cp = new Int32Array(64);
+  const ce = new Float64Array(128);
+  const cp = new Int32Array(128);
   for (const Rg of ranges) {
     const r = rng(Rg.seed * 101);
     const peaks = [];
     for (let k = 0; k < Rg.count; k++) {
-      const y = lerp(Rg.top[0], Rg.top[1], r());
-      peaks.push({
+      const y = lerp(Rg.top[0], Rg.top[1], Math.pow(r(), 0.8));
+      const p = {
         x: ((k + 0.15 + r() * 0.7) / Rg.count) * W,
         y,
         sl: lerp(Rg.slope[0], Rg.slope[1], r()),
         sr: lerp(Rg.slope[0], Rg.slope[1], r()),
-        lean: (r() - 0.5) * 0.5,
-        snow: lerp(Rg.snow[0], Rg.snow[1], r()) * sstep(Rg.snowTop + 60, Rg.snowTop - 40, y),
+        snow: lerp(Rg.snow[0], Rg.snow[1], r()) * sstep(Rg.snowTop + 50, Rg.snowTop - 50, y),
         ox: r() * 200,
         oy: r() * 200,
         ribK: 3 + r() * 3,
-      });
+        sp: new Float32Array(HH),
+      };
+      // the spine (where the lit and shadowed faces meet) leans and wanders
+      const lean = (r() - 0.5) * 0.6;
+      for (let d = 0; d < HH; d++) p.sp[d] = lean * d + (vnoise(tab, d * 0.018 + p.ox, p.oy) - 0.5) * d * 0.45;
+      peaks.push(p);
     }
-    const jag = noise1(W, 96, 5, Rg.seed * 7 + 1);
-    const jag2 = noise1(W, 512, 2, Rg.seed * 7 + 2);
-    for (let x = 0; x < W; x++) {
-      let m = 0;
-      const px = x + 0.5;
-      const jg = jag[x] * Rg.jag + jag2[x] * Rg.jag * 0.3;
-      for (let k = 0; k < peaks.length; k++) {
-        const p = peaks[k];
-        const dx = wdx(px, p.x);
-        const ax = Math.abs(dx);
-        const e = p.y + ax * (dx < 0 ? p.sl : p.sr) + jg * Math.min(1, ax / 50);
-        if (e >= solid[x]) continue;
-        // insertion sort by edge height
-        let j = m++;
-        while (j > 0 && ce[j - 1] > e) {
-          ce[j] = ce[j - 1];
-          cp[j] = cp[j - 1];
-          j--;
-        }
-        ce[j] = e;
-        cp[j] = k;
-      }
-      if (m === 0) continue;
-      const top = ce[0];
-      let ci = 0;
-      let front = null;
-      let frontE = 0;
-      const crx = px * 0.0625;
-      for (let y = Math.max(0, Math.floor(top)); y < solid[x]; y++) {
-        while (ci < m && ce[ci] <= y + 1) {
-          const p = peaks[cp[ci]];
-          if (!front || p.y > front.y) {
-            front = p;
-            frontE = ce[ci];
-          }
-          ci++;
-        }
-        const p = front;
-        const py = y + 0.5;
-        const dy = Math.max(0.5, py - p.y);
-        const sx = wdx(px, p.x) - p.lean * dy - (vn(dy * 0.02 + p.ox, p.oy) - 0.5) * dy * 0.3;
-        const half = sx < 0 ? dy / p.sl : dy / p.sr;
-        const q = clamp(sx / (half + 2), -1, 1);
-        const rib = vn(q * p.ribK + p.ox, Math.sqrt(dy) * 0.8 + p.oy);
-        const rib2 = vn(q * p.ribK * 2.7 + p.ox + 50, dy * 0.05 + p.oy);
-        const crag = vn(crx, py * 0.0625 + p.oy);
-        const th = Math.asin(q) * 0.85 + (rib - 0.5) * 1.5 + (rib2 - 0.5) * 0.8 + (crag - 0.5) * 0.5;
-        const snx = Math.sin(th);
-        const cz = Math.cos(th);
-        const lit = clamp(-snx * 0.85 + cz * 0.22 + 0.12);
-        const l2 = lit * lit;
-        // snow: deeper on the ribs, streaking down the gullies
-        const sline = p.snow * (0.7 + rib * 0.6) + (crag - 0.5) * 18;
-        let snow = sstep(sline + 5, sline - 5, dy);
-        if (rib2 > 0.6) snow = Math.max(snow, sstep(sline * 1.6 + 4, sline * 1.6 - 4, dy) * sstep(0.6, 0.7, rib2));
-        const kr = 0.85 + crag * 0.3;
-        let cr = lerp(Rg.shadow[0], lerp(Rg.rock[0], Rg.lit[0], l2), Math.min(1, lit * 1.6)) * kr;
-        let cg = lerp(Rg.shadow[1], lerp(Rg.rock[1], Rg.lit[1], l2), Math.min(1, lit * 1.6)) * kr;
-        let cb = lerp(Rg.shadow[2], lerp(Rg.rock[2], Rg.lit[2], l2), Math.min(1, lit * 1.6)) * kr;
-        cr = lerp(cr, lerp(Rg.snowSh[0], Rg.snowLit[0], lit), snow);
-        cg = lerp(cg, lerp(Rg.snowSh[1], Rg.snowLit[1], lit), snow);
-        cb = lerp(cb, lerp(Rg.snowSh[2], Rg.snowLit[2], lit), snow);
-        // warm rim light along left-facing ridges
-        const de = py - frontE;
-        if (de < 6 && sx < 0) {
-          const rk = (1 - de / 6) * 0.55 * clamp(-q * 3);
-          cr = lerp(cr, Rg.rim[0], rk);
-          cg = lerp(cg, Rg.rim[1], rk);
-          cb = lerp(cb, Rg.rim[2], rk);
-        }
-        // haze, thickening into mist toward the foot of the range
-        const depth = clamp((py - p.y) / (Rg.base - p.y + 1));
-        const mt = Rg.mist * depth * depth;
-        cr = lerp(lerp(cr, Rg.hazeCol[0], Rg.haze), Rg.mistCol[0], mt);
-        cg = lerp(lerp(cg, Rg.hazeCol[1], Rg.haze), Rg.mistCol[1], mt);
-        cb = lerp(lerp(cb, Rg.hazeCol[2], Rg.haze), Rg.mistCol[2], mt);
-        const cov = y === Math.floor(top) ? 1 - (top - y) : 1;
-        const i = y * W + x;
-        const a = clamp(cov) * (1 - CA[i]);
-        CR[i] += cr * a;
-        CG[i] += cg * a;
-        CB[i] += cb * a;
-        CA[i] += a;
-      }
-      solid[x] = Math.min(solid[x], Math.floor(top) + 1);
-    }
+    // silhouette detail shared by the range: ridged shoulders, then crags
+    const S = {
+      W, HH, peaks, solid, ce, cp, tab, BUF, Rg,
+      big: noise1(W, 18, 3, Rg.seed * 7 + 1),
+      jag: noise1(W, 96, 4, Rg.seed * 7 + 2),
+      fineJ: noise1(W, 512, 2, Rg.seed * 7 + 3),
+    };
+    for (let x = 0; x < W; x++) bdColumn(S, x);
   }
   const cv = mkCanvas(W, HH);
   const g = cv.getContext('2d');
   const img = g.createImageData(W, HH);
   const d = img.data;
-  for (let i = 0, o = 0; i < N; i++, o += 4) {
-    const a = CA[i];
-    if (a <= 0) continue;
-    const ia = 1 / a;
-    d[o] = CR[i] * ia * 255;
-    d[o + 1] = CG[i] * ia * 255;
-    d[o + 2] = CB[i] * ia * 255;
-    d[o + 3] = a * 255;
+  // transpose back to rows in strips of 16 columns
+  for (let x0 = 0; x0 < W; x0 += 16) {
+    for (let y = 0; y < HH; y++) {
+      for (let x = x0; x < x0 + 16; x++) {
+        const s = (x * HH + y) * 4;
+        const a = BUF[s + 3];
+        if (a <= 0) continue;
+        const o = (y * W + x) * 4;
+        const ia = 255 / a;
+        d[o] = BUF[s] * ia;
+        d[o + 1] = BUF[s + 1] * ia;
+        d[o + 2] = BUF[s + 2] * ia;
+        d[o + 3] = a * 255;
+      }
+    }
   }
   g.putImageData(img, 0, 0);
   BACKDROP = cv;

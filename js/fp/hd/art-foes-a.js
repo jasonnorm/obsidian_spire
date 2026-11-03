@@ -254,17 +254,6 @@ class Ctx {
     }
     return this.cache[k];
   }
-  // A soft glow (for eyes, embers): blurred copy under a sharp core.
-  glow(s = 6) {
-    const k = `g${s}`;
-    if (!this.cache[k]) {
-      const id = `${this.p}glow${String(s).replace('.', '_')}`;
-      this.defs.push(`<filter id="${id}" ${this.region()}><feGaussianBlur stdDeviation="${s}" result="g"/>` +
-        `<feMerge><feMergeNode in="g"/><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`);
-      this.cache[k] = `url(#${id})`;
-    }
-    return this.cache[k];
-  }
   // Fine strands (fur, hair, bristles, fibres) scattered over a box, each a
   // short curved stroke at angle a (degrees) +- spread.
   strands({ x0, y0, x1, y1, n, a = 90, spread = 20, len = 14, lv = 0.4, w = 1.2, cols, op = 0.6, curl = 0.25, field }) {
@@ -492,6 +481,9 @@ function brigand(c, A) {
     blob(c, opening, '#050803', 7, 0.55) +
     S(sm([[136, 164], [152, 184], [172, 196], [190, 190], [206, 210], [240, 224], [274, 210], [292, 190], [314, 180], [332, 186], [346, 164]], false), '#d4e49a', 1.2, 'stroke-dasharray="3 4" opacity="0.32"'));
   head += P(opening, c.rg([[0, '#2a1a12'], [0.7, '#120a06'], [1, '#060403']], 0.5, 0.65, 0.6));
+  // the hood's rolled, stitched edge round the face
+  head += S(opening, c.lgU([[0, '#a8d070'], [0.45, '#4e7e32'], [1, '#16280e']], 200, 40, 280, 136), 7) + S(opening, '#0a1406', 1.5, 'opacity="0.5" transform="translate(1.5 2)"') +
+    S(opening, '#d4e49a', 1, 'stroke-dasharray="3 4" opacity="0.35"');
   const face = sm([[240, 46], [256, 51], [266, 66], [268, 88], [263, 110], [251, 124], [240, 127], [229, 124], [217, 110], [212, 88], [214, 66], [224, 51]]);
   head += P(face, c.rg([[0, '#e2a882'], [0.45, '#b06e4a'], [0.85, '#6a3a26'], [1, '#3a1e0e']], 0.36, 0.62, 0.7));
   head += c.inside(face,
@@ -520,8 +512,15 @@ function brigand(c, A) {
       S(sm([[x - 9, y + 0.8], [x - 3, y - 3.6], [x + 4, y - 3.6], [x + 9, y - 0.3]], false), '#120704', 1.8);
   };
   head += eye(228, 86, 1) + eye(252, 86, -1);
-  head += P(sm([[213, 79, 0], [222, 73.5], [236, 78], [237, 81.5, 0], [224, 78], [214, 81.5, 0]]), '#1a0d06');
-  head += P(sm([[243, 78.5, 0], [257, 73.5], [267, 77], [266, 80.5, 0], [256, 78], [243, 82, 0]]), '#140a05');
+  if (A) {
+    // knitted, furious brows for the lunge
+    head += P(sm([[212, 74, 0], [224, 74], [237, 81], [237, 84.5, 0], [224, 78.5], [213, 77.5, 0]]), '#1a0d06');
+    head += P(sm([[243, 81.5, 0], [256, 74], [268, 73.5], [267, 77, 0], [256, 78], [243, 85, 0]]), '#140a05');
+    head += line(c, 'M237 80L239 74', '#3a180c', 1.2, 0.5, 0.7) + line(c, 'M243 80L241 74', '#3a180c', 1.2, 0.5, 0.7);
+  } else {
+    head += P(sm([[213, 79, 0], [222, 73.5], [236, 78], [237, 81.5, 0], [224, 78], [214, 81.5, 0]]), '#1a0d06');
+    head += P(sm([[243, 78.5, 0], [257, 73.5], [267, 77], [266, 80.5, 0], [256, 78], [243, 82, 0]]), '#140a05');
+  }
   head += blob(c, 'M236 79L244 79L242 87L238 87Z', '#3a180c', 1.5, 0.6);
   // the kerchief: tented over the nose, gathered under the chin, a hanging point
   const kerchief = sm([[207, 101], [222, 97], [240, 90], [258, 97], [273, 101], [276, 116], [267, 132], [253, 146], [241, 166, 0], [228, 147], [214, 132], [204, 116]]);
@@ -591,10 +590,10 @@ function brigand(c, A) {
     front += dagger([336, 354], [342, 316], [372, 234]) + fist(c, lf, ang([336, 354], [342, 316]), 1);
   } else {
     const rs = tp(176, 176), ls = tp(304, 176);
-    const re = [124, 128], rw = [154, 62], rf = [160, 48];
+    const re = [124, 134], rw = [154, 68], rf = [160, 54];
     const le = [352, 270], lw = [330, 318], lf = [318, 328];
     back += armSvg(rs, re, rw, -1);
-    back += sword([146, 60], [182, 38], [412, 26], 20) + fist(c, rf, ang([146, 60], [182, 38]), -1);
+    back += sword([146, 66], [182, 44], [412, 32], 20) + fist(c, rf, ang([146, 66], [182, 44]), -1);
     front += armSvg(ls, le, lw, 1);
     front += dagger([334, 344], [304, 312], [258, 250]) + fist(c, lf, ang([334, 344], [304, 312]), 1);
   }
@@ -738,10 +737,10 @@ function wolf(c, A) {
   s += leg(A ? [[530, 270 + d, 52], [556, 326 + d, 32], [572, 362 + d * 0.5, 24], [560, 396, 21], [548, 414, 21]] : [[528, 266, 52], [554, 322, 32], [568, 358, 24], [556, 396, 21], [546, 414, 21]], false, 100) + paw(542, 426, 40, false);
   if (!A) s += leg([[236, 232, 60], [240, 290, 44], [236, 342, 32], [230, 390, 28], [224, 412, 28]], false) + paw(220, 426, 44, false);
   // tail, raised and bristling
-  const tail = A ? [[556, 146 + d, 44], [582, 112 + d, 54], [602, 80 + d, 50], [618, 50 + d, 32], [630, 26 + d, 0]] : [[556, 142, 44], [584, 106, 54], [604, 72, 50], [618, 42, 32], [626, 14, 0]];
+  const tail = A ? [[550, 146 + d, 44], [572, 112 + d, 52], [588, 80 + d, 48], [600, 50 + d, 30], [608, 26 + d, 0]] : [[550, 142, 44], [574, 106, 52], [590, 72, 48], [601, 42, 30], [606, 16, 0]];
   const tailD = tuft(ribPts(tail).map((p) => [p[0], p[1], p[2] ?? 1, 10]), { seed: 31, lean: 0.9, n: 2.4, jit: 0.7 });
   s += P(tailD, pal.grey(), `filter="${fur}"`);
-  s += c.inside(tailD, cl({ x0: 540, y0: 0, x1: 640, y1: 200, n: 140, a: -62, len: 24, cols: [...DK, ...MD, ...LT] }) + blob(c, ell(624, 34 + d, 16, 30), '#0e0e12', 10, 0.75) + blob(c, ell(610, 120, 20, 60), '#0e0e12', 14, 0.5));
+  s += c.inside(tailD, cl({ x0: 540, y0: 0, x1: 640, y1: 200, n: 140, a: -62, len: 24, cols: [...DK, ...MD, ...LT] }) + blob(c, ell(604, 34 + d, 16, 30), '#0e0e12', 10, 0.75) + blob(c, ell(592, 120, 20, 60), '#0e0e12', 14, 0.5));
   // one silhouette for the neck ruff, back, croup and haunch; hackles raised
   const body = tuft([[122, 178], [118, 126, 1, 14], [148, 84, 1, 18], [198, 58, 1, 22], [258, 50, 1, 22], [314, 58 + d * 0.6, 1, 20], [372, 76 + d, 1, 15], [428, 92 + d, 1, 10], [488, 100 + d, 1, 8], [536, 106 + d, 1, 6], [566, 122 + d],
     [588, 152 + d, 1, 8], [597, 202 + d, 1, 10], [588, 252 + d, 1, 9], [568, 290 + d, 1, 6], [542, 302 + d], [516, 288 + d, 1, 8], [496, 238 + d, 1, 9], [440, 246 + d, 1, 10], [380, 266 + d, 1, 12], [320, 286 + d, 1, 12], [270, 294 + d], [236, 270], [222, 240], [140, 236]], { seed: 41, lean: 1, n: 2.6, jit: 0.75 });
@@ -771,13 +770,17 @@ function wolf(c, A) {
   if (A) {
     // the near forepaw raised toward the viewer, claws out
     let fore = leg([[222, 250, 58], [198, 292, 44], [166, 322, 34], [138, 326, 30]], false, 160, -1);
-    const rp = sm([[94, 314], [110, 296], [134, 294], [150, 312], [146, 342], [122, 352], [98, 342]]);
-    fore += P(rp, pal.grey(), `filter="${furS}"`);
-    fore += c.inside(rp, P(ell(124, 330, 13, 10), c.lg([[0, '#4a3a3e'], [1, '#141014']])) + [[102, 312], [113, 303], [128, 301], [142, 307]].map(([x, y]) => P(ell(x + 2, y + 7, 6, 5), c.lg([[0, '#4a3a3e'], [1, '#1a1216']]))).join('') + blob(c, ell(112, 298, 14, 5), '#e2ded6', 4, 0.5));
-    for (const [x, y, a] of [[100, 308, -150], [111, 298, -118], [127, 295, -88], [143, 300, -58]]) {
-      const rad = (a * Math.PI) / 180, ex = x + Math.cos(rad) * 15, ey = y + Math.sin(rad) * 15;
-      fore += P(rib([[x, y, 5], [lerp(x, ex, 0.5), lerp(y, ey, 0.5), 3.5], [ex, ey, 0]], 0.5), c.lg([[0, '#f4ecdc'], [1, '#8a8070']]));
+    // claws first, hooked out of the fur
+    for (const [x, y, a] of [[100, 310, -150], [111, 300, -120], [127, 297, -90], [143, 302, -60]]) {
+      const rad = (a * Math.PI) / 180, ex = x + Math.cos(rad) * 22, ey = y + Math.sin(rad) * 22;
+      const mx = lerp(x, ex, 0.55) + Math.cos(rad + 1.2) * 4, my = lerp(y, ey, 0.55) + Math.sin(rad + 1.2) * 4;
+      fore += P(rib([[x, y, 6.5], [mx, my, 4.5], [ex, ey, 0]], 0.5), c.lg([[0, '#d8ccb8'], [0.5, '#6a6050'], [1, '#1a1612']]));
     }
+    const rp = tuft([[92, 316, 1, 5], [108, 298, 1, 4], [134, 294, 1, 4], [152, 312, 1, 5], [148, 344], [122, 354], [96, 344, 1, 5]], { seed: 141, lean: 0.4, n: 2.5, jit: 0.8 });
+    fore += P(rp, pal.grey(), `filter="${furS}"`);
+    const pad = (x, y, rx, ry) => P(ell(x, y, rx, ry), c.rgU([[0, '#5a4a4c'], [0.5, '#241a1c'], [1, '#0a0608']], x - rx * 0.3, y - ry * 0.4, rx * 1.3)) + `<ellipse cx="${r1(x - rx * 0.3)}" cy="${r1(y - ry * 0.4)}" rx="${r1(rx * 0.3)}" ry="${r1(ry * 0.2)}" fill="#c8c0c8" opacity="0.45"/>`;
+    fore += c.inside(rp, blob(c, ell(122, 326, 24, 22), '#0a0a0c', 6, 0.55) + pad(123, 332, 12, 9) + [[103, 314], [114, 305], [129, 303], [143, 309]].map(([x, y]) => pad(x + 2, y + 7, 5, 4.2)).join('') +
+      cl({ x0: 92, y0: 292, x1: 152, y1: 354, n: 50, len: 10, w: 3, cols: [...DK, ...MD], field: (x, y) => (Math.atan2(y - 326, x - 122) * 180) / Math.PI }) + blob(c, ell(112, 298, 14, 5), '#e2ded6', 4, 0.4));
     s += fore;
   }
   const hx = A ? 172 : 190, hy = A ? 168 : 158, hs = A ? 0.82 : 0.76, hr = A ? -8 : -3;
@@ -814,17 +817,17 @@ function houndHead(c, jaw, blaze) {
   const J = jaw;
   const jawD = sm([[-36, 52], [-14, 70], [16, 84], [44, 92], [60, 86], [52, 80], [24, 74], [-6, 64], [-28, 50]]);
   const jawTop = xf([[52, 80], [24, 74], [-6, 64], [-28, 50]], { rot: jaw, cx: -34, cy: 50 });
-  const mouthIn = sm([[-36, 50, 0.3], [-16, 56], [6, 64], [30, 70], [56, 72], [70, 72, 0.3], [jawTop[0][0] + 10, jawTop[0][1] + 4], ...jawTop.slice(0, 3), [-34, 52, 0.3]]);
+  const mouthIn = sm([[-36, 56, 0.3], [-16, 60], [6, 62], [28, 61], [46, 62], [60, 70], [70, 72, 0.3], [jawTop[0][0] + 10, jawTop[0][1] + 4], ...jawTop.slice(0, 3), [-34, 52, 0.3]]);
   s += P(mouthIn, blaze ? c.rgU([[0, '#fffbe6'], [0.3, '#ffe36a'], [0.65, '#ff9a1e'], [1, '#b8300a']], 22, 82, 56) : c.lg([[0, '#5a1408'], [1, '#160302']], 0, 0, 0, 1));
   let jw = P(jawD, hide(), `filter="${v}"`);
   for (let k = 0; k < 7; k++) {
-    const t = k / 6, x = lerp(-18, 50, t), y = lerp(64, 84, t) - 2, h = k === 5 ? 16 : 8;
-    jw += P(sm([[x - 3, y + 2], [x + 3, y + 3], [x + 1, y - h, 0]]), c.lg([[0, '#fffbe8'], [1, '#a89878']], 0, 1, 0, 0));
+    const t = k / 6, x = lerp(-18, 50, t), y = lerp(64, 84, t) - 2, h = [7, 10, 8, 11, 9, 20, 8][k], w = k === 5 ? 4.2 : 2.6;
+    jw += P(sm([[x - w, y + 2], [x + w, y + 3], [x + 0.6, y - h, 0]]), c.lg([[0, '#f4ecd8'], [0.6, '#c8b894'], [1, '#6a5a40']], 0, 1, 0, 0));
   }
   jw += c.inside(jawD, line(c, 'M-20 64Q20 86 56 88', '#9a7ae0', 1.5, 1, 0.5));
   s += G(jw, `transform="rotate(${J} -34 50)"`);
   // skull: narrow, gaunt, sunken
-  const skull = tuft([[-12, -52], [14, -50], [34, -38], [44, -18], [50, 6], [60, 30], [70, 50], [76, 62], [70, 74], [56, 78], [30, 74], [6, 66], [-16, 58], [-36, 50, 1, 5], [-52, 34, 1, 6], [-58, 10, 1, 5], [-54, -16], [-36, -42]], { seed: 83, lean: -0.6, n: 2, jit: 0.8 });
+  const skull = tuft([[-12, -52], [14, -50], [34, -38], [44, -18], [50, 6], [60, 30], [70, 50], [76, 62], [70, 74], [60, 72], [46, 63], [28, 62], [6, 63], [-16, 61], [-36, 57, 1, 5], [-52, 34, 1, 6], [-58, 10, 1, 5], [-54, -16], [-36, -42]], { seed: 83, lean: -0.6, n: 2, jit: 0.8 });
   s += P(skull, hide(), `filter="${v}"`);
   s += c.inside(skull,
     blob(c, ell(-22, -1, 17, 12, 12), '#000000', 5, 0.85) + blob(c, ell(26, -6, 12, 10, -10), '#000000', 4, 0.8) +
@@ -835,12 +838,18 @@ function houndHead(c, jaw, blaze) {
     [22, 32, 42].map((y, i) => line(c, `M${18 + i * 8} ${y - 10}Q${30 + i * 8} ${y - 4} ${34 + i * 8} ${y + 6}`, '#020105', 1.8, 0.8, 0.7)).join('') +
     c.strands({ x0: -58, y0: -52, x1: 50, y1: 60, n: 80, a: 150, spread: 30, len: 12, w: 1, cols: ['#5a44a0', '#020105'], op: 0.45 }));
   // upper teeth under the drawn-back lip
-  const lip = [[-36, 50], [-16, 58], [6, 66], [30, 74], [56, 78], [70, 74]];
+  const lip = [[-36, 57], [-16, 61], [6, 63], [28, 62], [46, 63], [60, 72], [70, 74]];
+  const lipY = (x) => { for (let i = 0; i < lip.length - 1; i++) if (x <= lip[i + 1][0]) return lerp(lip[i][1], lip[i + 1][1], (x - lip[i][0]) / (lip[i + 1][0] - lip[i][0])); return lip[lip.length - 1][1]; };
+  // gums under the drawn-back lip, then needle teeth and long canines
+  s += P(sm([...lip.map(([x, y]) => [x, y - 3]), ...lip.slice().reverse().map(([x, y]) => [x, y + 4])]), c.lg([[0, '#6a1a2a'], [1, '#2a0610']], 0, 0, 0, 1));
+  const H2 = [8, 11, 8, 12, 10, 12, 28, 10];
   for (let k = 0; k < 8; k++) {
-    const t = (k + 0.5) / 8, x = lerp(-28, 64, t), y = lerp(54, 78, t) - (t > 0.8 ? 2 : 0), h = k === 6 ? 22 : 10;
-    s += P(sm([[x - 3.2, y - 2], [x + 3.2, y - 1], [x + 0.5, y + h, 0]]), c.lg([[0, '#fffbe8'], [1, '#a89878']], 0, 0, 0, 1));
+    const t = (k + 0.5) / 8, x = lerp(-28, 64, t), y = lipY(x) + 2, h = H2[k], w = k === 6 ? 4.6 : 2.6;
+    s += P(sm([[x - w, y - 2], [x + w, y - 1], [x + w * 0.2 + (k === 6 ? -2 : 0.5), y + h, 0]]), c.lg([[0, '#f4ecd8'], [0.6, '#c8b894'], [1, '#6a5a40']], 0, 0, 0, 1));
   }
   s += S(sm(lip, false), '#020105', 2.4);
+  // snarl creases above the lip
+  s += line(c, 'M14 50Q34 46 50 54', '#020105', 2, 1, 0.75) + line(c, 'M18 42Q36 38 54 48', '#020105', 1.6, 1, 0.55) + line(c, 'M16 46Q35 42 52 51', '#8a6ad8', 1.2, 0.8, 0.4) + line(c, 'M-30 48Q-10 54 6 56', '#020105', 1.8, 1, 0.6);
   // nose
   s += P(ell(70, 63, 11, 8, 28), c.lg([[0, '#6a5a8a'], [0.5, '#1a1428'], [1, '#020105']])) + `<ellipse cx="66" cy="58" rx="4" ry="2" fill="#e0d4ff" opacity="0.6" transform="rotate(28 66 58)"/>` + P(ell(73, 67, 3, 2, 28), '#000');
   // burning eyes under heavy brows
@@ -881,7 +890,9 @@ function hound(c, A) {
   };
   // a jointed leg along [x, y, width] knots, sinew and bone under thin hide
   const leg = (pts, dark) => {
-    const d = sm(ribPts(pts));
+    const rp = ribPts(pts);
+    const half = Math.floor(rp.length / 2);
+    const d = tuft(rp.map((p, i) => [p[0], p[1], p[2] ?? 1, i > 1 && i < half - 1 ? 5 : 0]), { seed: 900 + Math.round(pts[0][0]), lean: 1.4, n: 2, jit: 0.85 });
     let s = P(d, dark ? far() : hide(), `filter="${vs}"`);
     const hi = sm(pts.map((p) => [p[0] - p[2] * 0.22, p[1], 1]), false);
     s += c.inside(d, line(c, hi, dark ? '#3a2c66' : '#8a6ad8', 2.2, 1.6, dark ? 0.4 : 0.6) +
@@ -907,10 +918,12 @@ function hound(c, A) {
   let bd = P(bodyD, hide(), `filter="${v}"`);
   let ribs = '';
   for (let k = 0; k < 7; k++) {
-    const x0 = 318 + k * 17, y0 = 158 + k * 1.5;
-    const d = `M${x0} ${y0}Q${x0 - 18 + k * 2} ${y0 + 60} ${x0 + 6 + k * 4} ${266 + k * 4 - (k > 4 ? (k - 4) * 6 : 0)}`;
-    ribs += line(c, d, '#000000', 10, 3.5, 0.75) + line(c, d, '#9a6cff', 3.4, 1.4, 0.9) + line(c, d, '#e6d8ff', 1.1, 0.5, 0.55);
+    const x0 = 322 + k * 16, y0 = 156 + k * 1.2, yb = 262 + k * 5 - (k > 4 ? (k - 4) * 8 : 0);
+    const d = `M${x0} ${y0}C${x0 - 30} ${y0 + 34} ${x0 - 30} ${yb - 40} ${x0 - 6 + k * 2} ${yb}`;
+    const g = `M${x0 + 8} ${y0 + 4}C${x0 - 21} ${y0 + 38} ${x0 - 21} ${yb - 36} ${x0 + 3 + k * 2} ${yb + 2}`;
+    ribs += line(c, g, '#000000', 9, 3.5, 0.85) + line(c, d, '#6a46c8', 6, 2.5, 0.55) + line(c, d, '#a47cff', 2.6, 1.1, 0.85) + line(c, `M${x0 - 2} ${y0 + 6}C${x0 - 30} ${y0 + 36} ${x0 - 30} ${yb - 50} ${x0 - 18} ${yb - 24}`, '#efe4ff', 1, 0.5, 0.5);
   }
+  ribs += blob(c, sm([[300, 250], [440, 270], [430, 310], [300, 300]]), '#000', 12, 0.6);
   let spine = '';
   for (let k = 0; k < 12; k++) { const x = 228 + k * 17, y = 142 + Math.sin(k * 0.5) * 3 + (k < 3 ? 2 : 0); spine += P(ell(x, y + 6, 6, 3.5), '#8a6ad8', `filter="${c.blur(1.5)}" opacity="0.55"`); }
   bd += c.inside(bodyD,
@@ -921,13 +934,13 @@ function hound(c, A) {
     line(c, 'M234 172Q246 230 250 284', '#000', 9, 5, 0.6) + line(c, 'M190 186Q204 236 224 280', '#7a5cc8', 2.5, 2, 0.45) +
     line(c, 'M452 160Q440 220 446 292', '#000', 10, 6, 0.6) + blob(c, ell(410, 176, 22, 30, 20), '#2e2454', 10, 0.6) + line(c, 'M396 150Q420 170 430 210', '#a080f0', 2.5, 2, 0.4) +
     c.strands({ x0: 150, y0: 126, x1: 470, y1: 306, n: 300, a: 172, spread: 12, len: 18, w: 1.1, cols: ['#000', '#2e2454', '#05030a'], op: 0.55 }));
-  const tail = A ? [[170, 162, 18], [130, 160, 13], [92, 148, 9], [58, 130, 6], [30, 110, 0]] : [[166, 166, 18], [132, 184, 13], [98, 194, 9], [64, 188, 6], [32, 172, 0]];
+  const tail = A ? [[170, 162, 18], [134, 160, 13], [100, 150, 9], [70, 134, 6], [46, 116, 0]] : [[166, 166, 18], [134, 184, 13], [102, 194, 9], [72, 188, 6], [46, 172, 0]];
   bd = P(tuft(ribPts(tail, 1, 0).map((p) => [p[0], p[1], p[2] ?? 1, 4]), { seed: 97, lean: -1, n: 2 }), hide(), `filter="${vs}"`) + bd;
   const neck = rib([[470, 134, 58], [450, 178, 68], [436, 222, 76]]);
   bd += P(neck, hide(), `filter="${v}"`) + c.inside(neck, line(c, 'M484 142Q466 182 458 228', '#000', 6, 4, 0.6) + line(c, 'M452 138Q438 172 430 212', '#8a6ad8', 2.5, 2.5, 0.45) + line(c, 'M462 150Q452 190 446 226', '#000', 2, 1.5, 0.5));
 
   let s = farLegs + G(bd, `transform="${tr}"`) + nearLegs;
-  const H = A ? [500, 108] : tp(488, 120);
+  const H = A ? [500, 126] : tp(488, 120);
   const hs = A ? 0.9 : 0.86, hr = A ? -8 : 6;
   s += G(houndHead(c, A ? 30 : 3, A), `transform="translate(${r1(H[0])} ${r1(H[1])}) rotate(${hr}) scale(${hs})"`);
 
@@ -946,16 +959,16 @@ function hound(c, A) {
     return out;
   };
   const W = (pts, col, op, b, behind) => { const q = wave(pts.map(([x, y, w]) => { const [X, Y] = tp(x, y); return [X, Y, w]; }), 6, pts[0][0] * 0.1); const w = wisp(c, q, col, op, b); if (behind) back += w; else wisps += w; };
-  const tt = A ? [30, 110] : [32, 172];
-  W([[tt[0] + 14, tt[1] + 2, 10], [tt[0] - 6, tt[1] - 6, 14], [tt[0] - 26, tt[1] - 10, 10], [tt[0] - 40, tt[1] - 20, 0]], '#9a72ff', 0.85, 2);
-  W([[tt[0] + 30, tt[1] + 8, 8], [tt[0], tt[1] + 18, 12], [tt[0] - 30, tt[1] + 26, 0]], '#48d6e0', 0.7, 2);
+  const tt = A ? [46, 116] : [46, 172];
+  W([[tt[0] + 14, tt[1] + 2, 10], [tt[0] - 4, tt[1] - 6, 14], [tt[0] - 18, tt[1] - 10, 10], [tt[0] - 28, tt[1] - 20, 0]], '#9a72ff', 0.85, 2);
+  W([[tt[0] + 30, tt[1] + 8, 8], [tt[0] + 4, tt[1] + 18, 12], [tt[0] - 20, tt[1] + 26, 0]], '#48d6e0', 0.7, 2);
   for (let k = 0; k < 4; k++) {
     const x = 214 + k * 64, y = 146 - (k > 2 ? 4 : 0);
     W([[x, y + 10, 10], [x - 34, y - 6, 18], [x - 74, y - 16, 16], [x - 120, y - 22, 0]], k % 2 ? '#48d6e0' : '#9a70ff', 0.55, 3);
   }
-  W([[160, 236, 12], [116, 250, 20], [70, 254, 16], [20, 250, 0]], '#8c64ff', 0.55, 3.5);
+  W([[160, 236, 12], [120, 250, 20], [80, 254, 16], [36, 250, 0]], '#8c64ff', 0.55, 3.5);
   W([[256, 286, 10], [214, 302, 16], [170, 310, 0]], '#48d6e0', 0.45, 3);
-  W([[200, 150, 22], [140, 124, 30], [80, 108, 26], [10, 100, 0]], '#5a3cc0', 0.5, 6, true);
+  W([[200, 150, 22], [146, 124, 30], [90, 108, 24], [36, 100, 0]], '#5a3cc0', 0.5, 6, true);
   W([[300, 146, 18], [240, 116, 26], [180, 100, 18], [110, 92, 0]], '#3ab0c0', 0.35, 6, true);
   if (!A) { W([[198, 372, 8], [168, 380, 10], [136, 384, 0]], '#48d6e0', 0.5, 2.5); W([[232, 374, 6], [206, 388, 8], [180, 394, 0]], '#8c64ff', 0.45, 2.5); W([[446, 380, 6], [420, 392, 8], [396, 398, 0]], '#8c64ff', 0.4, 2.5); }
   else { W([[150, 360, 8], [110, 366, 10], [70, 368, 0]], '#48d6e0', 0.55, 2.5); W([[176, 320, 10], [130, 314, 12], [84, 306, 0]], '#8c64ff', 0.5, 3); }
@@ -1048,11 +1061,13 @@ function wraith(c, A) {
   let s = '', mist = '', glow = '';
   const hem = 560;
   // teal-lined rags hanging behind, longer than the robe
-  const backD = sm([[180, 220, 1], [380, 220, 1], [414, 360], [418, hem - 40], ...ragHem(418, 142, hem - 20, 8, 40, 150, A ? 211 : 201, 16), [142, hem - 40], [146, 360]]);
+  const backHem = ragHem(418, 142, hem - 20, 8, 30, 110, A ? 211 : 201, 16);
+  const backD = sm([[180, 220, 1], [380, 220, 1], [414, 360], [418, hem - 40], ...backHem, [142, hem - 40], [146, 360]]);
   s += P(backD, teal(), `filter="${cloth}"`);
   s += c.inside(backD, blob(c, ell(280, 420, 130, 200), '#02060c', 30, 0.7));
   // main robe tapering to long uneven rags
-  const body = sm([[280, 186], [346, 194], [384, 222], [402, 270], [404, 330], [398, 410], [386, 490], [374, hem], ...ragHem(374, 186, hem, 7, 24, 120, A ? 223 : 213, 12), [174, 490], [162, 410], [156, 330], [158, 270], [176, 222], [214, 194]]);
+  const bodyHem = ragHem(374, 186, hem, 7, 20, 90, A ? 223 : 213, 12);
+  const body = sm([[280, 186], [346, 194], [384, 222], [402, 270], [404, 330], [398, 410], [386, 490], [374, hem], ...bodyHem, [174, 490], [162, 410], [156, 330], [158, 270], [176, 222], [214, 194]]);
   s += P(body, robe(), `filter="${cloth}"`);
   let folds = '';
   [170, 200, 230, 262, 296, 328, 360, 390].forEach((x, i) => {
@@ -1093,7 +1108,7 @@ function wraith(c, A) {
   if (A) s += L.hand + Rr.hand + L.sv + Rr.sv; else s += L.sv + Rr.sv + L.hand + Rr.hand;
 
   // hood and its empty dark opening
-  const hood = tuft([[280, 22], [304, 30], [330, 52], [346, 86], [354, 128], [360, 170], [384, 196, 1, 10], [400, 222], [340, 236], [280, 244], [220, 236], [160, 222, 1, 10], [176, 196], [200, 170], [206, 128], [214, 86], [230, 52], [256, 30]], { seed: 131, lean: 0.2, n: 1.6, jit: 0.8 });
+  const hood = tuft([[280, 22], [304, 30], [330, 52], [346, 86], [354, 128], [360, 170], [384, 196], [400, 222], [340, 236], [280, 244], [220, 236], [160, 222], [176, 196], [200, 170], [206, 128], [214, 86], [230, 52], [256, 30]], { seed: 131, lean: 0.2, n: 1.6, jit: 0.8 });
   s += P(hood, robe(), `filter="${cloth}"`);
   const opening = sm([[280, 66], [310, 74], [328, 100], [334, 140], [326, 180], [304, 206], [280, 212], [256, 206], [234, 180], [226, 140], [232, 100], [250, 74]]);
   s += c.inside(hood, line(c, 'M300 32Q340 70 346 150', '#7ab8f0', 5, 5, 0.35) + line(c, 'M250 38Q222 80 220 150', '#9fd0ff', 4, 4, 0.3) +
@@ -1109,20 +1124,522 @@ function wraith(c, A) {
   }
   glow += `<ellipse cx="280" cy="150" rx="46" ry="54" fill="#2a6a9a" opacity="0.18" filter="${c.blur(18)}"/>`;
 
-  // mist: the rags trail off into fading strips and a low glow
+  // mist: every rag tip unravels into a fading strip; a faint glow below
   const R = rng(A ? 7 : 5);
-  for (let k = 0; k < 13; k++) {
-    const x = 150 + k * 21 + (R() - 0.5) * 12, y0 = hem + 20 + R() * 40, len = 50 + R() * 50;
-    const sway = (R() - 0.5) * 34;
-    const pts = [[x, y0, 16 + R() * 8], [x + sway * 0.4, y0 + len * 0.4, 12 + R() * 6], [x + sway * 0.8, y0 + len * 0.75, 6], [x + sway, Math.min(y0 + len, 690), 0]];
-    const g = c.lgU([[0, k % 3 === 0 ? '#2a8a9a' : '#1c2c66', 0.9], [0.5, '#16245a', 0.5], [1, '#0e1a40', 0]], x, y0, x + sway, y0 + len);
-    mist += `<path d="${rib(pts, 1, 0)}" fill="${g}" filter="${c.blur(2)}"/>`;
+  let fade = '';
+  const unravel = (pts, cols, wide) => {
+    pts.forEach(([x, y, t], i) => {
+      if (t !== 0) return;
+      const len = 40 + R() * 46, sway = (R() - 0.5) * 26, w = wide * (0.7 + R() * 0.5);
+      const y0 = y - 34, y1 = Math.min(y + len, 688);
+      const q = [[x - sway * 0.2, y0, w], [x, y - 6, w * 0.8], [x + sway * 0.5, lerp(y, y1, 0.5), w * 0.55], [x + sway, y1, 0]];
+      const col = cols[i % cols.length];
+      fade += `<path d="${rib(q, 1, 0)}" fill="${c.lgU([[0, col, 0], [0.2, col, 0.92], [0.55, col, 0.55], [1, col, 0]], x, y0, x + sway, y1)}" filter="${c.blur(1.6)}"/>`;
+      fade += `<path d="${rib(q.map(([a, b, ww]) => [a, b, ww * 0.25]), 1, 0)}" fill="${c.lgU([[0, '#7ab8e8', 0], [0.3, '#7ab8e8', 0.22], [1, '#7ab8e8', 0]], x, y0, x + sway, y1)}" filter="${c.blur(1.2)}"/>`;
+    });
+  };
+  unravel(backHem, ['#0f4650', '#0c3a44'], 20);
+  unravel(bodyHem, ['#0e1a40', '#13224e', '#0e1a40'], 26);
+  for (let k = 0; k < 5; k++) {
+    const x = 190 + k * 45 + (R() - 0.5) * 20, y = hem + 80 + R() * 20;
+    mist += `<ellipse cx="${r1(x)}" cy="${r1(y)}" rx="${r1(34 + R() * 20)}" ry="${r1(9 + R() * 6)}" fill="${k % 2 ? '#3aa6b8' : '#2a3c88'}" opacity="${r1(0.12 + R() * 0.08)}" filter="${c.blur(10)}"/>`;
   }
-  for (let k = 0; k < 7; k++) {
-    const x = 170 + k * 36 + (R() - 0.5) * 20, y = hem + 70 + R() * 30;
-    mist += `<ellipse cx="${r1(x)}" cy="${r1(y)}" rx="${r1(30 + R() * 20)}" ry="${r1(10 + R() * 8)}" fill="${k % 2 ? '#3aa6b8' : '#2a3c88'}" opacity="${r1(0.16 + R() * 0.12)}" filter="${c.blur(10)}"/>`;
+  return `${mist}<g filter="${c.fx({ seed: 17, rim: 0.85 })}">${s}</g>${fade}${glow}`;
+}
+
+// ---------------------------------------------------------------- undead kit
+const BONE = ['#ece4cc', '#b8ae94', '#6a604c', '#2e281e'];
+const boneFill = (c) => c.lg([[0, BONE[0]], [0.4, BONE[1]], [0.8, BONE[2]], [1, BONE[3]]], 0.1, 0, 0.9, 1);
+// A long bone between a and b: knobbly ends, a slimmer shaft.
+function bone(c, a, b, w, { w1 = w, dark = 0 } = {}) {
+  const m1 = mix2(a, b, 0.2), m2 = mix2(a, b, 0.8), mid = mix2(a, b, 0.5);
+  const d = rib([[a[0], a[1], w * 1.35], [m1[0], m1[1], w * 0.8], [mid[0], mid[1], (w + w1) * 0.33], [m2[0], m2[1], w1 * 0.8], [b[0], b[1], w1 * 1.35]]);
+  const f = dark ? c.lg([[0, '#8a8068'], [0.5, '#5a5242'], [1, '#1e1a14']], 0.1, 0, 0.9, 1) : boneFill(c);
+  return P(d, f, `filter="${c.vol({ k: 3, b: 2.2, sc: '#140e08', so: 0.6, ho: 0.3, tex: 0.3, tf: 0.12, tc: '#2a2010', seed: 52 })}"`) +
+    c.inside(d, line(c, `M${r1(m1[0] - 2)} ${r1(m1[1])}L${r1(m2[0] - 2)} ${r1(m2[1])}`, '#fffbe8', 1.4, 0.8, dark ? 0.15 : 0.45));
+}
+// Chain mail: a ring pattern over a steel gradient, rust blooms and shading.
+function mail(c, d, { rust = 0.5, seed = 1, dark = 0 } = {}) {
+  if (!c.cache.mail) {
+    const id = c.nid('mail');
+    c.defs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" width="6" height="5">` +
+      `<rect width="6" height="5" fill="#34363a"/>` +
+      ['0 0', '6 0', '3 2.5', '0 5', '6 5'].map((p) => { const [x, y] = p.split(' '); return `<circle cx="${x}" cy="${y}" r="2.1" fill="none" stroke="#16181b" stroke-width="1.3"/><path d="M${+x - 1.6} ${+y - 1}A2 2 0 0 1 ${+x + 1.2} ${+y - 1.6}" fill="none" stroke="#b4b8bc" stroke-width="0.8"/>`; }).join('') + `</pattern>`);
+    c.cache.mail = `url(#${id})`;
   }
-  return `${mist}<g filter="${c.fx({ seed: 17, rim: 0.85 })}">${s}</g>${glow}`;
+  const R = rng(seed);
+  let blooms = '';
+  for (let i = 0; i < 9; i++) blooms += `<ellipse cx="${r1(R() * c.w)}" cy="${r1(R() * c.h)}" rx="${r1(20 + R() * 40)}" ry="${r1(14 + R() * 30)}" fill="${R() < 0.5 ? '#8a4414' : '#5a2a0e'}" opacity="${r1(rust * (0.5 + R() * 0.5))}" filter="${c.blur(10)}"/>`;
+  return G(P(d, c.cache.mail) + c.inside(d, `<rect x="0" y="0" width="${c.w}" height="${c.h}" fill="${c.lgU([[0, '#ffffff', 0.25], [0.5, '#000000', 0.05], [1, '#000000', 0.55 + dark * 0.3]], 0, 0, c.w * 0.6, c.h)}"/>` + blooms),
+    `filter="${c.vol({ k: 8, b: 6, sc: '#06060a', so: 0.7, ho: 0.3, tex: 0.5, tf: 0.06, tc: '#4a200a', seed: 53 })}"`);
+}
+// Rusted iron: mottled orange-brown with pitting.
+const rustFill = (c) => c.lg([[0, '#e09048'], [0.3, '#a4561e'], [0.7, '#5e2c0e'], [1, '#241006']], 0.15, 0, 0.85, 1);
+const rustVol = (c) => c.vol({ k: 6, b: 4, sc: '#120804', so: 0.6, ho: 0.3, tex: 0.6, tf: 0.09, tc: '#2a1206', seed: 54 });
+// Skeletal hand gripping something at (x, y); ang = grip axis.
+function boneFist(c, x, y, ang, side) {
+  const R = (pts) => xf(pts, { rot: ang - 90, sx: side }).map(([px, py, ...r]) => [px + x, py + y, ...r]);
+  let s = P(sm(R([[-12, -14], [4, -15], [6, 12], [-12, 12]])), boneFill(c), `filter="${c.vol({ k: 2.5, b: 2, sc: '#140e08', so: 0.6, ho: 0.3 })}"`);
+  [-9, -3, 3, 9].forEach((fy) => {
+    const d = rib(R([[-4, fy, 5.5], [6, fy, 5], [13, fy + 1, 4.5], [12, fy + 4, 3.5]]));
+    s += P(d, boneFill(c), `filter="${c.vol({ k: 2, b: 1.5, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
+  });
+  s += P(rib(R([[-12, -10, 6], [-2, -16, 5], [8, -15, 4]])), boneFill(c), `filter="${c.vol({ k: 2, b: 1.5, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
+  return s;
+}
+
+// ---------------------------------------------------------------- wight
+// Barrow-wight: a skeletal warrior in rotted mail and a rusted nasal helm, cold
+// blue eye-lights, a round shield of bone, a notched sword. attack: sword raised.
+function wight(c, A) {
+  let s = '', glow = '';
+  const T = A ? { dx: 6, dy: 8, rot: 3, cx: 240, cy: 420 } : { dx: 0, dy: 0, rot: 0, cx: 240, cy: 420 };
+  const tp = (x, y) => xf([[x, y]], T)[0];
+  const tr = `translate(${T.dx} ${T.dy}) rotate(${T.rot} ${T.cx} ${T.cy})`;
+  const maroon = () => c.lg([[0, '#9a2a2a'], [0.4, '#681616'], [1, '#240606']], 0.15, 0, 0.85, 1);
+  const cloth = c.vol({ k: 6, b: 5, so: 0.6, ho: 0.2, tex: 0.35, tf: 0.05, tc: '#0a0202', seed: 55 });
+  const leather = c.vol({ k: 5, b: 4, so: 0.6, ho: 0.22, tex: 0.4, tf: 0.07, tc: '#120602', seed: 56 });
+
+  // ----- legs: bare bones between the rotted skirt and the boots
+  const legs = A ? { l: [[214, 420], [196, 520], [184, 604]], r: [[266, 420], [292, 516], [300, 604]] } : { l: [[214, 420], [206, 520], [202, 604]], r: [[266, 420], [274, 520], [278, 604]] };
+  let lg = '';
+  for (const [hip, knee, ank] of [legs.l, legs.r]) {
+    lg += bone(c, [hip[0], hip[1] + 10], knee, 17, { w1: 15 });
+    lg += bone(c, [knee[0] + 5, knee[1] + 8], [ank[0] + 6, ank[1]], 9, { dark: 1 });
+    lg += bone(c, [knee[0] - 3, knee[1] + 6], [ank[0] - 3, ank[1]], 13, { w1: 11 });
+    lg += P(ell(knee[0], knee[1] + 2, 12, 10), boneFill(c), `filter="${c.vol({ k: 3, b: 2, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
+    // rotted wrappings round the shin
+    {
+      const p = mix2(knee, ank, 0.62);
+      lg += P(sm([[p[0] - 16, p[1] - 6], [p[0] + 14, p[1] - 12], [p[0] + 16, p[1] + 4], [p[0] + 4, p[1] + 26, 0], [p[0] - 2, p[1] + 6], [p[0] - 15, p[1] + 8]]), c.lg([[0, '#6a4a2c'], [1, '#1e1208']]), `filter="${leather}"`);
+    }
+    // boots
+    const bx = ank[0];
+    const sd = bx < 240 ? -1 : 1;
+    const boot = sm([[bx - 20, 596], [bx - 2, 588], [bx + 20, 594], [bx + 22, 630], [bx + 28 + sd * 6, 652], [bx + 32 + sd * 8, 680, 0], [bx - 32 + sd * 8, 680, 0], [bx - 28 + sd * 4, 652], [bx - 22, 630]]);
+    lg += P(boot, c.lg([[0, '#8a5a34'], [0.5, '#4e2c14'], [1, '#1a0c04']]), `filter="${leather}"`);
+    lg += c.inside(boot, `<rect x="${bx - 50}" y="670" width="100" height="12" fill="#120804"/>` + line(c, `M${bx - 26} 612Q${bx} 606 ${bx + 26} 612`, '#120804', 3, 1.5, 0.6) +
+      line(c, `M${bx - 24} 624L${bx - 30} 660`, '#c08a5a', 3, 2.5, 0.3) + blob(c, ell(bx + 8, 648, 10, 14), '#0a0402', 6, 0.5));
+  }
+  s += lg;
+
+  // ----- torso
+  let tor = '';
+  // rotted maroon skirt under the mail
+  const skirt = sm([[168, 370], [312, 370], [322, 404], ...ragHem(330, 152, 430, 7, 10, 40, 61, 4), [158, 404]]);
+  tor += P(skirt, maroon(), `filter="${cloth}"`);
+  tor += c.inside(skirt, [190, 222, 258, 290].map((x) => line(c, `M${x} 380L${x + (x - 240) * 0.1} 470`, '#1a0404', 6, 4, 0.6)).join(''));
+  // hauberk with a torn hole that shows the ribs inside
+  const hauberk = sm([[176, 170], [240, 164], [304, 170], [322, 196], [316, 250], [302, 296], [310, 340], [324, 392, 0.5], ...ragHem(324, 156, 396, 9, 4, 20, 62, 3), [156, 392, 0.5], [170, 340], [178, 296], [164, 250], [158, 196]]);
+  tor += mail(c, hauberk, { rust: 0.55, seed: 7 });
+  const hole = tuft([[196, 214], [228, 206], [246, 230], [238, 270], [210, 278], [192, 252]], { def: 4, seed: 63, n: 2.5, jit: 0.9 });
+  let cav = P(hole, '#050304');
+  for (let k = 0; k < 4; k++) cav += c.inside(hole, bone(c, [246, 216 + k * 15], [196, 228 + k * 15], 6, { w1: 5 }));
+  cav += c.inside(hole, bone(c, [240, 206], [242, 280], 9));
+  cav += c.inside(hole, blob(c, ell(204, 220, 30, 20), '#000', 6, 0.7) + blob(c, ell(244, 260, 16, 26), '#000', 6, 0.5));
+  tor += cav + S(hole, '#8a8e94', 2.4, 'stroke-dasharray="2 2" opacity="0.8"') + S(hole, '#4a2a12', 1, 'opacity="0.7"');
+  // belt
+  // a cracked leather belt: flat strap, rivets, a rusted buckle and a hanging tongue
+  const belt = sm([[178, 302, 0], [240, 309], [302, 302, 0], [302, 318, 0], [240, 325], [178, 318, 0]]);
+  tor += ao(c, sm([[150, 296], [330, 296], [330, 350], [150, 350]]), belt, 0, 6, 4, 0.6);
+  tor += P(belt, c.lg([[0, '#5a3a22'], [0.5, '#3a2212'], [1, '#160a04']], 0, 0, 0, 1), `filter="${c.vol({ k: 2, b: 1.5, so: 0.5, ho: 0.25, tex: 0.5, tf: 0.12, tc: '#0a0402', seed: 66 })}"`);
+  tor += c.inside(belt, line(c, 'M178 306Q240 313 302 306', '#c08a5a', 1.2, 0.4, 0.45) + line(c, 'M196 304L199 322', '#0a0402', 1.4, 0.4, 0.8) + line(c, 'M286 304L283 321', '#0a0402', 1.2, 0.4, 0.7) +
+    [186, 206, 270, 292].map((x) => `<circle cx="${x}" cy="${r1(311 + Math.abs(x - 240) * -0.06 + 0.5)}" r="1.8" fill="#c88a4a"/>`).join(''));
+  tor += P(sm([[192, 318, 0], [204, 318, 0], [203, 352, 0.6], [197, 358, 0], [191, 350, 0.6]]), c.lg([[0, '#4a2c18'], [1, '#140802']], 0, 0, 1, 1), `filter="${leather}"`);
+  tor += P(sm([[229, 303], [253, 303], [253, 331], [229, 331]].map((q) => [...q, 0.3])), rustFill(c), `filter="${rustVol(c)}"`) + P(sm([[234, 308, 0], [248, 308, 0], [248, 326, 0], [234, 326, 0]]), '#1a0c06');
+  // spine of the neck
+  for (let k = 0; k < 3; k++) tor += P(ell(240, 150 + k * 9, 9 - k, 4.5), boneFill(c), `filter="${c.blur(0.5)}"`);
+  // rusted pauldrons
+  for (const sd of [-1, 1]) {
+    const x = 240 + sd * 70;
+    const pd = sm([[x - 40 * sd, 168], [x + 4 * sd, 160], [x + 36 * sd, 176], [x + 42 * sd, 206], [x + 26 * sd, 222], [x - 20 * sd, 210]]);
+    tor += P(pd, rustFill(c), `filter="${rustVol(c)}"`);
+    tor += c.inside(pd, line(c, `M${x - 30 * sd} 196Q${x + 8 * sd} 184 ${x + 40 * sd} 204`, '#1a0a04', 3, 1.5, 0.7) + line(c, `M${x - 30 * sd} 192Q${x + 8 * sd} 180 ${x + 40 * sd} 200`, '#f0a868', 1.5, 1, 0.5) +
+      [0.2, 0.5, 0.8].map((t) => `<circle cx="${r1(lerp(x - 30 * sd, x + 36 * sd, t))}" cy="${r1(186 + Math.sin(t * 3) * 6)}" r="2.5" fill="#3a1a08"/>`).join(''));
+  }
+  // ----- head: rusted nasal helm, mail aventail, the skull, blue eye-lights
+  const aventail = sm([[194, 94], [286, 94], [292, 132], [304, 168], [278, 176], [266, 150], [214, 150], [202, 176], [176, 168], [188, 132]]);
+  tor += mail(c, aventail, { rust: 0.6, seed: 9, dark: 1 });
+  const skull = sm([[208, 94], [272, 94], [277, 116], [271, 134], [262, 145], [218, 145], [209, 134], [203, 116]]);
+  const jawGap = A ? 9 : 3;
+  // the dark mouth behind the teeth, then the mandible
+  tor += P(sm([[218, 140], [262, 140], [260, 156 + jawGap], [220, 156 + jawGap]]), '#070403');
+  const jaw = sm([[212, 146], [268, 146], [266, 160 + jawGap], [256, 171 + jawGap], [240, 174 + jawGap], [224, 171 + jawGap], [214, 160 + jawGap]]);
+  tor += P(jaw, c.lg([[0, '#d8ceb2'], [0.45, '#9a8e72'], [1, '#2e281c']], 0.2, 0, 0.6, 1), `filter="${c.vol({ k: 3, b: 2.5, sc: '#140e08', so: 0.65, ho: 0.3, tex: 0.3, tf: 0.12, tc: '#2a2010', seed: 59 })}"`);
+  tor += c.inside(jaw, blob(c, ell(262, 162, 12, 14), '#1a1208', 4, 0.7) + blob(c, ell(240, 178, 30, 6), '#140e08', 4, 0.6) + line(c, 'M222 168Q240 175 258 168', '#fffbe8', 1.2, 0.8, 0.35));
+  tor += P(skull, boneFill(c), `filter="${c.vol({ k: 4, b: 3, sc: '#140e08', so: 0.65, ho: 0.35, tex: 0.35, tf: 0.1, tc: '#2a2010', seed: 57 })}"`);
+  tor += c.inside(skull,
+    // temples and stained hollows
+    blob(c, ell(206, 108, 8, 20), '#1a1208', 5, 0.7) + blob(c, ell(274, 112, 9, 26), '#1a1208', 5, 0.8) +
+    blob(c, ell(230, 136, 26, 8), '#6a5a3c', 6, 0.35) + blob(c, ell(258, 100, 14, 6), '#5a4a30', 5, 0.4) +
+    // deep sockets with soft rims
+    blob(c, ell(225, 112, 15, 13), '#2a2010', 3, 0.85) + blob(c, ell(255, 112, 15, 13), '#2a2010', 3, 0.9) +
+    P(sm([[213, 111], [223, 102], [236, 106], [236, 119], [225, 124], [214, 120]]), '#030201') + P(sm([[267, 111], [257, 102], [244, 106], [244, 119], [255, 124], [266, 120]]), '#030201') +
+    // nasal cavity either side of the nasal bar
+    P(sm([[240, 122, 0], [247, 132], [244, 138], [240, 136, 0], [236, 138], [233, 132]]), '#060403') +
+    // cheekbones: lit on the left, shadowed on the right
+    blob(c, ell(213, 128, 8, 5, -20), '#fffbe8', 3, 0.6) + blob(c, ell(266, 130, 7, 5, 20), '#3a3020', 3, 0.6) +
+    line(c, 'M250 96L254 103L250 109L253 114', '#3a3020', 1.1, 0.3, 0.75) + line(c, 'M212 134L218 140', '#3a3020', 1, 0.3, 0.6));
+  // irregular, yellowed teeth (one missing)
+  let teeth = '';
+  [0, 1, 2, 4, 5, 6, 7].forEach((k) => { const x = 223 + k * 4.9, h = [7, 8, 8.5, 0, 8.5, 8, 7.5, 6.5][k]; teeth += P(sm([[x - 2.3, 140], [x + 2.3, 140], [x + 2, 140 + h, 0.5], [x - 2, 140 + h - 0.6, 0.5]]), c.lg([[0, '#d8caa0'], [0.6, '#a8966c'], [1, '#4a3c24']], 0, 0, 0, 1)); });
+  [0, 1, 2, 3, 4, 5, 6].forEach((k) => { const x = 225 + k * 5, h = [6, 7, 7.5, 7.5, 7, 6.5, 6][k]; teeth += P(sm([[x - 2.2, 155 + jawGap], [x + 2.2, 155 + jawGap], [x + 2, 155 + jawGap - h, 0.5], [x - 2, 155 + jawGap - h + 0.5, 0.5]]), c.lg([[0, '#4a3c24'], [0.45, '#a8966c'], [1, '#cfc098']], 0, 0, 0, 1)); });
+  tor += teeth;
+  // helm: conical, rusted, with brim band and nasal
+  const helm = sm([[194, 102], [196, 72], [212, 42], [240, 20, 0.6], [268, 42], [284, 72], [286, 102], [240, 98]]);
+  tor += P(helm, rustFill(c), `filter="${rustVol(c)}"`);
+  tor += c.inside(helm, line(c, 'M240 22L240 98', '#2a1206', 4, 1.5, 0.6) + line(c, 'M236 24L232 96', '#f4b070', 2.5, 2, 0.45) +
+    blob(c, ell(214, 58, 10, 26, 20), '#ffc890', 8, 0.35) + blob(c, ell(270, 70, 12, 30), '#120602', 8, 0.5) +
+    c.strands({ x0: 194, y0: 20, x1: 286, y1: 102, n: 70, a: 0, spread: 180, len: 3, w: 3, cols: ['#2a1206', '#3e1a08', '#d08040'], op: 0.6 }));
+  const band = sm([[192, 88, 0.5], [240, 84], [288, 88, 0.5], [288, 102, 0.5], [240, 98], [192, 102, 0.5]]);
+  tor += P(band, rustFill(c), `filter="${rustVol(c)}"`) + [204, 220, 260, 276].map((x) => `<circle cx="${x}" cy="94" r="2.6" fill="#2a1206"/><circle cx="${x - 0.7}" cy="93.3" r="1" fill="#f0a060"/>`).join('');
+  const nasal = sm([[234, 90, 0.5], [246, 90, 0.5], [245, 132, 0.6], [240, 138, 0], [235, 132, 0.6]]);
+  tor += P(nasal, rustFill(c), `filter="${rustVol(c)}"`);
+  // cold blue eye-lights
+  for (const ex of [226, 254]) tor += `<circle cx="${ex}" cy="113" r="2.8" fill="${c.rgU([[0, '#ffffff'], [0.45, '#c8ecff'], [1, '#2a8aff']], ex, 113, 2.8)}"/>`;
+  for (const ex of [226, 254]) { const [gx, gy] = tp(ex, 113); glow += `<circle cx="${r1(gx)}" cy="${r1(gy)}" r="${A ? 6.5 : 4.5}" fill="#4aa8ff" opacity="${A ? 0.8 : 0.65}" filter="${c.blur(A ? 3.5 : 2.5)}"/><circle cx="${r1(gx)}" cy="${r1(gy)}" r="2.2" fill="#ffffff" opacity="0.95" filter="${c.blur(0.8)}"/>`; }
+  s += G(tor, `transform="${tr}"`);
+
+  // ----- arms
+  const arm = (sh, el, wr, side, hidden) => {
+    let a = '';
+    // mail sleeve to the elbow
+    const sleeve = rib([[sh[0], sh[1], 46], [lerp(sh[0], el[0], 0.55), lerp(sh[1], el[1], 0.55), 40], [el[0], el[1], 32]]);
+    a += mail(c, sleeve, { rust: 0.5, seed: 11 + side });
+    a += c.inside(sleeve, `<path d="${sm(ragHem(el[0] + 30, el[0] - 30, el[1] - 4, 5, 4, 12, 64 + side, 2).map(([x, y]) => [x, y]), false)}" fill="none" stroke="#0a0604" stroke-width="3" opacity="0.6"/>`);
+    if (hidden) return a;
+    // forearm bones and a rotted leather bracer
+    a += bone(c, [el[0] + 4 * side, el[1]], [wr[0] + 3 * side, wr[1]], 8, { dark: 1 });
+    a += bone(c, [el[0] - 3 * side, el[1]], [wr[0] - 3 * side, wr[1]], 11, { w1: 9 });
+    const br = rib([[lerp(el[0], wr[0], 0.45), lerp(el[1], wr[1], 0.45), 30], [lerp(el[0], wr[0], 0.8), lerp(el[1], wr[1], 0.8), 26]], 0.4, 0.4);
+    a += P(br, c.lg([[0, '#8a5a34'], [1, '#2a160a']]), `filter="${leather}"`);
+    return a;
+  };
+  const sword = (pommel, guard, tip) => {
+    const notches = [{ s: 0.3, side: 1, d: 4 }, { s: 0.55, side: -1, d: 5 }, { s: 0.68, side: 1, d: 3 }];
+    let w = blade(c, guard, tip, 20, { notches, rust: 0.55, gleam: 0.45 });
+    const dx = tip[0] - guard[0], dy = tip[1] - guard[1], L = Math.hypot(dx, dy), gx = -dy / L, gy = dx / L;
+    const cg = rib([[guard[0] + gx * 30, guard[1] + gy * 30, 8], [guard[0], guard[1], 11], [guard[0] - gx * 30, guard[1] - gy * 30, 8]]);
+    w += P(cg, rustFill(c), `filter="${rustVol(c)}"`);
+    w += S(`M${r1(guard[0])} ${r1(guard[1])}L${r1(pommel[0])} ${r1(pommel[1])}`, '#2a1a10', 9);
+    w += `<circle cx="${r1(pommel[0])}" cy="${r1(pommel[1])}" r="8" fill="${c.rg([[0, '#e09048'], [0.5, '#7a3a12'], [1, '#2a1206']], 0.35, 0.3, 0.8)}"/>`;
+    return w;
+  };
+  // the bone shield: pale lashed plates, a rusted rim and boss, rust weeping down
+  const shield = (cx, cy, r) => {
+    const d = ell(cx, cy, r, r * 0.98);
+    let sh = P(d, c.rgU([[0, '#f2ead2'], [0.5, '#c2b89c'], [0.85, '#7a6e56'], [1, '#3a3226']], cx - r * 0.35, cy - r * 0.35, r * 1.5), `filter="${c.vol({ k: 10, b: 8, sc: '#140e08', so: 0.6, ho: 0.25, tex: 0.4, tf: 0.05, tc: '#2a2010', seed: 58 })}"`);
+    let inner = '';
+    for (let k = 0; k < 10; k++) {
+      const a = (k / 10) * Math.PI * 2 + 0.2;
+      inner += line(c, `M${r1(cx + Math.cos(a) * r * 0.22)} ${r1(cy + Math.sin(a) * r * 0.22)}L${r1(cx + Math.cos(a) * r)} ${r1(cy + Math.sin(a) * r)}`, '#4a3e2c', 2.4, 0.8, 0.7) +
+        line(c, `M${r1(cx + Math.cos(a + 0.04) * r * 0.24)} ${r1(cy + Math.sin(a + 0.04) * r * 0.24)}L${r1(cx + Math.cos(a + 0.03) * r)} ${r1(cy + Math.sin(a + 0.03) * r)}`, '#fffbe8', 1.2, 0.6, 0.4);
+    }
+    // cracks and rust streaks
+    inner += line(c, `M${cx - r * 0.5} ${cy - r * 0.3}L${cx - r * 0.3} ${cy - r * 0.15}L${cx - r * 0.35} ${cy + r * 0.05}`, '#2a2010', 1.5, 0.4, 0.8);
+    for (const [ox, len] of [[-0.3, 0.6], [0.05, 0.75], [0.35, 0.5], [-0.1, 0.5]]) inner += line(c, `M${cx + ox * r} ${cy + r * 0.15}L${cx + ox * r + 3} ${cy + r * (0.15 + len)}`, '#8a3e10', 5, 3, 0.55);
+    sh += c.inside(d, inner);
+    sh += `<circle cx="${cx}" cy="${cy}" r="${r - 4}" fill="none" stroke="${c.lgU([[0, '#e09048'], [0.5, '#7a3a12'], [1, '#2a1206']], cx - r, cy - r, cx + r, cy + r)}" stroke-width="9"/>`;
+    sh += [0, 1, 2, 3, 4, 5, 6, 7].map((k) => { const a = (k / 8) * Math.PI * 2; return `<circle cx="${r1(cx + Math.cos(a) * (r - 4))}" cy="${r1(cy + Math.sin(a) * (r - 4))}" r="2.6" fill="#2a1206"/>`; }).join('');
+    const boss = ell(cx, cy, r * 0.24, r * 0.24);
+    sh += P(boss, c.rgU([[0, '#f4b070'], [0.35, '#b0601e'], [0.8, '#4a1e08'], [1, '#1a0a04']], cx - r * 0.08, cy - r * 0.08, r * 0.3), `filter="${rustVol(c)}"`);
+    sh += c.inside(boss, c.strands({ x0: cx - r * 0.25, y0: cy - r * 0.25, x1: cx + r * 0.25, y1: cy + r * 0.25, n: 30, a: 0, spread: 180, len: 3, w: 3, cols: ['#2a1206', '#d08040'], op: 0.6 }));
+    return sh;
+  };
+
+  const rs = tp(176, 196), ls = tp(304, 196);
+  if (!A) {
+    s += arm(rs, [156, 290], [150, 368], -1);
+    s += sword([152, 352], [148, 392], [106, 628]) + boneFist(c, 150, 374, 95, -1);
+    s += arm(ls, [330, 276], [320, 304], 1, true);
+    s += shield(330, 302, 92);
+  } else {
+    s += arm(rs, [134, 126], [162, 60], -1);
+    s += sword([150, 70], [176, 44], [412, 18]) + boneFist(c, 164, 56, (Math.atan2(-26, 26) * 180) / Math.PI, -1);
+    s += arm(ls, [324, 268], [300, 290], 1, true);
+    s += shield(306, 290, 92);
+  }
+  return `<g filter="${c.fx({ seed: 19 })}">${s}</g>${glow}`;
+}
+
+// ---------------------------------------------------------------- barrow king
+const goldFill = (c) => c.lg([[0, '#fff2b0'], [0.3, '#e8b440'], [0.7, '#9a6a14'], [1, '#3e2604']], 0.2, 0, 0.8, 1);
+const goldVol = (c) => c.vol({ k: 3, b: 2, sc: '#2a1802', so: 0.55, ho: 0.45, tex: 0.25, tf: 0.15, tc: '#3a2404', seed: 71 });
+// A twisted gold torc: an open ring (ellipse arc) with knobbed terminals.
+function torc(c, cx, cy, rx, ry, w = 9, gap = 0.35) {
+  const pts = [];
+  for (let i = 0; i <= 16; i++) { const t = gap + (i / 16) * (Math.PI * 2 - gap * 2) + Math.PI / 2; pts.push([cx + Math.cos(t) * rx, cy + Math.sin(t) * ry, w]); }
+  const d = rib(pts);
+  let s = P(d, goldFill(c), `filter="${goldVol(c)}"`);
+  // twist: diagonal grooves
+  s += c.inside(d, pts.slice(1, -1).map(([x, y]) => line(c, `M${r1(x - 3)} ${r1(y - w * 0.5)}L${r1(x + 3)} ${r1(y + w * 0.5)}`, '#5a3a06', 1.6, 0.5, 0.7)).join(''));
+  for (const p of [pts[0], pts[pts.length - 1]]) s += `<circle cx="${r1(p[0])}" cy="${r1(p[1])}" r="${w * 0.85}" fill="${c.rg([[0, '#fff6c8'], [0.5, '#d8a030'], [1, '#4a2e06']], 0.35, 0.3, 0.8)}"/>`;
+  return s;
+}
+// A skull with a jaw (local coordinates: (0, 0) between the eyes, ~76px wide).
+function skullFace(c, jawGap, seed) {
+  const vb = (k, b) => c.vol({ k, b, sc: '#140e08', so: 0.65, ho: 0.35, tex: 0.35, tf: 0.1, tc: '#2a2010', seed });
+  let s = P(sm([[-26, 26], [26, 26], [24, 46 + jawGap], [-24, 46 + jawGap]]), '#070403');
+  const jaw = sm([[-32, 30], [32, 30], [30, 48 + jawGap], [18, 62 + jawGap], [0, 66 + jawGap], [-18, 62 + jawGap], [-30, 48 + jawGap]]);
+  s += P(jaw, c.lg([[0, '#d8ceb2'], [0.45, '#9a8e72'], [1, '#2e281c']], 0.2, 0, 0.6, 1), `filter="${vb(3, 2.5)}"`);
+  s += c.inside(jaw, blob(c, ell(26, 50, 12, 16), '#1a1208', 4, 0.7) + blob(c, ell(0, 70, 34, 6), '#140e08', 4, 0.6));
+  const sk = sm([[-38, -40], [0, -50], [38, -40], [44, -6], [38, 18], [28, 30], [-28, 30], [-38, 18], [-44, -6]]);
+  s += P(sk, boneFill(c), `filter="${vb(4, 3)}"`);
+  s += c.inside(sk,
+    blob(c, ell(-42, -6, 9, 22), '#1a1208', 5, 0.7) + blob(c, ell(42, -2, 10, 26), '#1a1208', 5, 0.8) +
+    blob(c, ell(-16, -2, 18, 15), '#2a2010', 3, 0.85) + blob(c, ell(16, -2, 18, 15), '#2a2010', 3, 0.9) +
+    P(sm([[-30, -2], [-18, -13], [-3, -8], [-3, 7], [-16, 12], [-29, 7]]), '#030201') + P(sm([[30, -2], [18, -13], [3, -8], [3, 7], [16, 12], [29, 7]]), '#030201') +
+    P(sm([[0, 10, 0], [7, 20], [4, 26], [0, 24, 0], [-4, 26], [-7, 20]]), '#060403') +
+    blob(c, ell(-30, 18, 9, 5, -20), '#fffbe8', 3, 0.6) + blob(c, ell(30, 20, 8, 5, 20), '#3a3020', 3, 0.6) +
+    blob(c, ell(-14, -34, 16, 8), '#fffbe8', 6, 0.4) +
+    line(c, 'M14 -44L18 -36L14 -30L17 -24', '#3a3020', 1.2, 0.3, 0.75));
+  let teeth = '';
+  for (let k = 0; k < 8; k++) { if (k === 5) continue; const x = -17.5 + k * 5; teeth += P(sm([[x - 2.3, 26], [x + 2.3, 26], [x + 2, 34, 0.5], [x - 2, 33.4, 0.5]]), c.lg([[0, '#d8caa0'], [0.6, '#a8966c'], [1, '#4a3c24']], 0, 0, 0, 1)); }
+  for (let k = 0; k < 7; k++) { const x = -15 + k * 5; teeth += P(sm([[x - 2.2, 44 + jawGap], [x + 2.2, 44 + jawGap], [x + 2, 37 + jawGap, 0.5], [x - 2, 37.5 + jawGap, 0.5]]), c.lg([[0, '#4a3c24'], [0.45, '#a8966c'], [1, '#cfc098']], 0, 0, 0, 1)); }
+  return s + teeth;
+}
+
+// The Barrow King: a tall crowned skeleton king in a tattered maroon burial
+// cloak, gold torcs and violet eye-lights, a long sword held point-down in both
+// hands. attack: the sword swung high.
+function barrowking(c, A) {
+  let s = '', glow = '';
+  const maroon = () => c.lg([[0, '#b03040'], [0.3, '#7a1a28'], [0.7, '#42080f'], [1, '#160205']], 0.15, 0, 0.85, 1);
+  const lining = () => c.lg([[0, '#3a0a12'], [1, '#0c0204']], 0.2, 0, 0.8, 1);
+  const cloth = c.vol({ k: 12, b: 10, sc: '#080102', so: 0.6, ho: 0.18, tex: 0.35, tf: 0.03, tc: '#000', seed: 72 });
+  const clothS = c.vol({ k: 7, b: 5, sc: '#080102', so: 0.6, ho: 0.2, tex: 0.35, tf: 0.04, tc: '#000', seed: 73 });
+  const iron = () => c.lg([[0, '#9aa0a8'], [0.35, '#5a5e66'], [0.75, '#26292e'], [1, '#0c0d10']], 0.15, 0, 0.85, 1);
+  const ironV = c.vol({ k: 5, b: 4, sc: '#050506', so: 0.6, ho: 0.3, tex: 0.4, tf: 0.08, tc: '#3a1a08', seed: 74 });
+  const op = A ? 1 : 0; // the cloak opens wider in the attack
+
+  const dropY = A ? 46 : 0; // the King sinks onto bent knees for the swing
+  const U = (x) => (A ? G(x, `transform="translate(0 ${dropY})"`) : x);
+  let up = '';
+  // high collar and the cloak's dark inside, behind everything
+  up += P(sm([[236, 214], [222, 120], [262, 150], [320, 136], [378, 150], [418, 120], [404, 214]]), maroon(), `filter="${clothS}"`);
+  const back = sm([[214, 196], [426, 196], [478 + op * 30, 270], [512 + op * 40, 440], [536 + op * 30, 640], [548 + op * 20, 800], ...ragHem(552 + op * 20, 88 - op * 20, 822, 12, 8, 18, 81, 4), [92 - op * 20, 800], [104 - op * 30, 640], [128 - op * 40, 440], [162 - op * 30, 270]]);
+  up += P(back, lining(), `filter="${cloth}"`);
+  up += c.inside(back, blob(c, ell(320, 520, 150, 300), '#000', 40, 0.6) + [170, 230, 410, 470].map((x) => line(c, `M${x} 260Q${x + (x - 320) * 0.15} 520 ${x + (x - 320) * 0.3} 830`, '#5a1220', 8, 8, 0.5)).join(''));
+
+  s += U(up);
+  // legs: femurs, iron greaves banded in gold, armoured feet
+  const legs = A ? [[[288, 470 + dropY], [252, 616], [252, 762]], [[352, 470 + dropY], [392, 612], [390, 762]]] : [[[290, 470], [282, 610], [276, 762]], [[350, 470], [358, 610], [364, 762]]];
+  for (const [hip, knee, ank] of legs) {
+    s += bone(c, hip, knee, 22, { w1: 19 });
+    s += P(ell(knee[0], knee[1], 15, 13), boneFill(c), `filter="${c.vol({ k: 3, b: 2, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
+    const gr = rib([[knee[0], knee[1] + 18, 46], [lerp(knee[0], ank[0], 0.45), lerp(knee[1], ank[1], 0.45), 44], [ank[0], ank[1], 36]]);
+    s += P(gr, iron(), `filter="${ironV}"`);
+    s += c.inside(gr, line(c, `M${knee[0] - 8} ${knee[1] + 20}L${ank[0] - 8} ${ank[1]}`, '#d8dce4', 3, 2.5, 0.35) + line(c, `M${knee[0] + 12} ${knee[1] + 24}L${ank[0] + 10} ${ank[1]}`, '#000', 5, 3, 0.5));
+    for (const t of [0.1, 0.55, 0.92]) { const p = mix2([knee[0], knee[1] + 18], ank, t); s += P(rib([[p[0] - 24, p[1] - 2, 8], [p[0], p[1] + 2, 9], [p[0] + 24, p[1] - 2, 8]], 0.3, 0.3), goldFill(c), `filter="${goldVol(c)}"`); }
+    const ax = ank[0], sd = ax < 320 ? -1 : 1;
+    const foot = sm([[ax - 22, 770], [ax, 756], [ax + 22, 768], [ax + 28 + sd * 8, 806], [ax + 34 + sd * 10, 840, 0], [ax - 34 + sd * 10, 840, 0], [ax - 28 + sd * 4, 806]]);
+    s += P(foot, iron(), `filter="${ironV}"`);
+    s += c.inside(foot, [790, 812].map((y) => line(c, `M${ax - 40} ${y}Q${ax} ${y - 6} ${ax + 40} ${y}`, '#000', 3, 1.5, 0.6) + line(c, `M${ax - 40} ${y - 3}Q${ax} ${y - 9} ${ax + 40} ${y - 3}`, '#c8ccd4', 1.5, 1, 0.4)).join('') + `<rect x="${ax - 60}" y="832" width="120" height="10" fill="#050506"/>`);
+  }
+  // pelvis and spine
+  let torso = '';
+  const pelvis = sm([[264, 420], [296, 404], [320, 418], [344, 404], [376, 420], [384, 450], [360, 470], [336, 462], [320, 478], [304, 462], [280, 470], [256, 450]]);
+  torso += P(pelvis, boneFill(c), `filter="${c.vol({ k: 4, b: 3, sc: '#140e08', so: 0.6, ho: 0.35, tex: 0.3, tf: 0.1, tc: '#2a2010', seed: 75 })}"`);
+  torso += c.inside(pelvis, P(ell(298, 452, 6, 8), '#0a0604') + P(ell(342, 452, 6, 8), '#0a0604') + blob(c, ell(320, 440, 10, 20), '#2a2010', 4, 0.6) + blob(c, ell(280, 420, 14, 8), '#fffbe8', 4, 0.4));
+  for (let k = 0; k < 6; k++) torso += P(ell(320, 352 + k * 11, 11 - k * 0.3, 5.5), boneFill(c), `filter="${c.vol({ k: 2, b: 1.5, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
+  // rib cage
+  let ribs = P(sm([[262, 222], [378, 222], [394, 280], [380, 340], [320, 352], [260, 340], [246, 280]]), '#060303');
+  for (let k = 0; k < 6; k++) {
+    const y = 232 + k * 19, w = 58 + Math.sin((k + 1) / 7 * Math.PI) * 18;
+    for (const sd of [-1, 1]) {
+      ribs += P(rib([[320 + sd * 8, y, 8], [320 + sd * w * 0.6, y - 2, 9], [320 + sd * w, y + 10, 8], [320 + sd * (w - 4), y + 26, 6]]), boneFill(c), `filter="${c.vol({ k: 2.5, b: 2, sc: '#140e08', so: 0.65, ho: 0.35 })}"`);
+    }
+  }
+  ribs += P(rib([[320, 220, 14], [320, 290, 12], [320, 330, 9]]), boneFill(c), `filter="${c.vol({ k: 2.5, b: 2, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
+  torso += ribs;
+  // collarbones
+  torso += bone(c, [252, 214], [310, 222], 8) + bone(c, [330, 222], [388, 214], 8);
+  s += U(torso);
+
+  // the sword: a long blade, gold guard and pommel
+  const swordSvg = (pommel, guard, tip, gl = 64) => {
+    let w = blade(c, guard, tip, 34, { notches: [{ s: 0.42, side: 1, d: 4 }, { s: 0.7, side: -1, d: 5 }], gleam: 0.55 });
+    const dx = tip[0] - guard[0], dy = tip[1] - guard[1], L = Math.hypot(dx, dy), gx = -dy / L, gy = dx / L, ux = dx / L, uy = dy / L;
+    const cg = rib([[guard[0] + gx * gl - ux * 8, guard[1] + gy * gl - uy * 8, 10], [guard[0] + gx * gl * 0.47, guard[1] + gy * gl * 0.47, 13], [guard[0], guard[1], 16], [guard[0] - gx * gl * 0.47, guard[1] - gy * gl * 0.47, 13], [guard[0] - gx * gl - ux * 8, guard[1] - gy * gl - uy * 8, 10]]);
+    w += P(cg, goldFill(c), `filter="${goldVol(c)}"`);
+    w += `<circle cx="${r1(guard[0])}" cy="${r1(guard[1])}" r="7" fill="${c.rg([[0, '#c8fff4'], [0.4, '#2ac0b8'], [1, '#04403e']], 0.35, 0.3, 0.8)}"/>`;
+    w += S(`M${r1(guard[0] - ux * 8)} ${r1(guard[1] - uy * 8)}L${r1(pommel[0])} ${r1(pommel[1])}`, '#2a1608', 14);
+    w += S(`M${r1(guard[0] - ux * 8)} ${r1(guard[1] - uy * 8)}L${r1(pommel[0])} ${r1(pommel[1])}`, '#c89a40', 2.5, 'stroke-dasharray="4 5" opacity="0.8"');
+    w += P(ell(pommel[0], pommel[1], 13, 13), goldFill(c), `filter="${goldVol(c)}"`);
+    return w;
+  };
+  // the cloak's front panels with gold-embroidered edges
+  const panel = (sd) => {
+    const m = (pts) => (sd < 0 ? pts : pts.map(([x, y, ...r]) => [640 - x, y, ...r]));
+    const o = op * 26;
+    const d = sm(m([[212, 200], [262, 208], [254, 300], [242 - o, 440], [232 - o, 620], [226 - o, 800], ...ragHem(226 - o, 104 - op * 18, 818, 5, 10, 24, 91 + sd, 5), [104 - op * 18, 800], [118 - op * 24, 620], [136 - op * 30, 440], [164 - op * 26, 270]]));
+    let p = P(d, maroon(), `filter="${cloth}"`);
+    p += c.inside(d, [150, 186, 216].map((x, i) => { const X = sd < 0 ? x : 640 - x; return line(c, `M${X} 250Q${X - sd * (8 + i * 4)} 540 ${X - sd * (14 + i * 6) - sd * o} 830`, '#14020a', 10, 8, 0.6) + line(c, `M${X + 12 * -sd} 260Q${X + 12 * -sd - sd * (8 + i * 4)} 540 ${X + 12 * -sd - sd * (14 + i * 6) - sd * o} 820`, '#d05060', 3, 3, sd < 0 ? 0.35 : 0.2); }).join('') +
+      c.strands({ x0: 100, y0: 200, x1: 540, y1: 830, n: 120, a: 92, spread: 4, len: 50, w: 1.1, cols: ['#14020a', '#a03040'], op: 0.3 }));
+    const edge = m([[258, 210], [250, 300], [238 - o, 440], [229 - o, 620], [224 - o, 800]]);
+    p += S(sm(edge, false), c.lgU([[0, '#fff0a0'], [0.4, '#c89030'], [1, '#5a3a08']], 200, 200, 300, 820), 9) + S(sm(edge, false), '#5a3a08', 2, 'stroke-dasharray="3 7" opacity="0.8"');
+    return p;
+  };
+  const arm = (sh, el, wr, side) => {
+    // rotted sleeve of the burial tunic over the upper arm, frayed at the end
+    const dx = el[0] - sh[0], dy = el[1] - sh[1], L = Math.hypot(dx, dy), nx = -dy / L, ny = dx / L;
+    const e = mix2(sh, el, 0.8);
+    const sl = tuft([[sh[0] - dx / L * 18, sh[1] - dy / L * 18], [sh[0] + nx * 26, sh[1] + ny * 26], [e[0] + nx * 22, e[1] + ny * 22, 1, 7], [e[0] - nx * 22, e[1] - ny * 22], [sh[0] - nx * 26, sh[1] - ny * 26]], { seed: 95 + side, lean: 0, n: 2.5, jit: 0.8 });
+    let a = bone(c, mix2(sh, el, 0.5), el, 15, { w1: 14 });
+    a += P(sl, c.lg([[0, '#6a1a24'], [0.5, '#34080e'], [1, '#100204']], 0.1, 0, 0.9, 1), `filter="${clothS}"`);
+    a += c.inside(sl, line(c, `M${r1(sh[0] + nx * 10)} ${r1(sh[1] + ny * 10)}L${r1(el[0] + nx * 8)} ${r1(el[1] + ny * 8)}`, '#000', 6, 4, 0.5) + line(c, `M${r1(sh[0] - nx * 14)} ${r1(sh[1] - ny * 14)}L${r1(el[0] - nx * 12)} ${r1(el[1] - ny * 12)}`, '#c04050', 3, 3, 0.35));
+    a += torc(c, lerp(sh[0], el[0], 0.5), lerp(sh[1], el[1], 0.5), 24, 8, 8, 0.5);
+    a += bone(c, [el[0] + 3 * side, el[1] + 2], [wr[0] + 3 * side, wr[1]], 8, { dark: 1 });
+    a += bone(c, [el[0] - 3 * side, el[1]], [wr[0] - 3 * side, wr[1]], 11, { w1: 9 });
+    a += P(ell(el[0], el[1], 11, 10), boneFill(c), `filter="${c.vol({ k: 3, b: 2, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
+    a += torc(c, lerp(el[0], wr[0], 0.82), lerp(el[1], wr[1], 0.82), 12, 5, 6, 0.6);
+    return a;
+  };
+
+  if (!A) {
+    s += swordSvg([320, 306], [320, 384], [320, 812]);
+    s += panel(-1) + panel(1);
+    s += arm([228, 232], [204, 318], [300, 344], -1) + arm([412, 232], [436, 318], [340, 360], 1);
+    s += boneFist(c, 314, 338, 90, 1) + boneFist(c, 326, 362, 90, -1);
+  } else {
+    s += U(panel(-1) + panel(1));
+    s += swordSvg([262, 70], [362, 60], [616, 44], 48);
+    s += arm([228, 232 + dropY], [176, 174], [296, 74], -1) + arm([412, 232 + dropY], [446, 166], [338, 66], 1);
+    s += boneFist(c, 296, 70, -6, 1) + boneFist(c, 336, 65, -6, -1);
+  }
+  // neck torc, skull and crown
+  const hx = 320, hy = 114 + dropY;
+  s += U(P(rib([[316, 150, 14], [320, 196, 16]]), boneFill(c), `filter="${c.vol({ k: 2.5, b: 2, sc: '#140e08', so: 0.6, ho: 0.35 })}"`) + torc(c, 320, 200, 52, 16, 11, 0.42));
+  let head = skullFace(c, A ? 8 : 2, 76);
+  // the crown: a gold band with tall points and a teal gem
+  const crown = sm([[-46, -24, 0.6], [-48, -64, 0], [-34, -50, 0], [-24, -82, 0], [-12, -56, 0], [0, -94, 0], [12, -56, 0], [24, -82, 0], [34, -50, 0], [48, -64, 0], [46, -24, 0.6], [0, -16]]);
+  head += P(crown, goldFill(c), `filter="${goldVol(c)}"`);
+  head += c.inside(crown, P(sm([[-48, -46, 0.5], [0, -40], [48, -46, 0.5], [48, -26, 0.5], [0, -18], [-48, -26, 0.5]]), c.lg([[0, '#f8d870'], [0.5, '#a87418'], [1, '#4a2e06']], 0, 0, 0, 1)) +
+    line(c, 'M-46 -44Q0 -36 46 -44', '#fff6c8', 1.6, 0.8, 0.7) + line(c, 'M-46 -28Q0 -20 46 -28', '#3a2404', 2, 1, 0.7) +
+    [-30, 30].map((x) => `<circle cx="${x}" cy="-33" r="4" fill="${c.rg([[0, '#ffd0e0'], [0.5, '#c02040'], [1, '#400810']], 0.35, 0.3, 0.8)}"/>`).join(''));
+  head += P(sm([[0, -46], [9, -34], [0, -22], [-9, -34]]), c.rg([[0, '#e0fffa'], [0.35, '#40e0d0'], [0.8, '#0a7070'], [1, '#033030']], 0.35, 0.3, 0.8)) + `<circle cx="-3" cy="-38" r="2" fill="#ffffff" opacity="0.9"/>`;
+  // violet eye-lights
+  for (const ex of [-16, 16]) head += `<circle cx="${ex}" cy="-1" r="3.4" fill="${c.rgU([[0, '#ffffff'], [0.45, '#e8c8ff'], [1, '#9a3aff']], ex, -1, 3.4)}"/>`;
+  s += G(head, `transform="translate(${hx} ${hy}) scale(1.08)"`);
+  for (const ex of [-16, 16]) {
+    const gx = hx + ex * 1.08, gy = hy - 1;
+    glow += `<circle cx="${r1(gx)}" cy="${r1(gy)}" r="${A ? 6.5 : 4.5}" fill="#a050ff" opacity="${A ? 0.85 : 0.7}" filter="${c.blur(A ? 3.5 : 2.5)}"/><circle cx="${r1(gx)}" cy="${r1(gy)}" r="2.4" fill="#ffffff" opacity="0.95" filter="${c.blur(0.8)}"/>`;
+  }
+  glow += `<circle cx="${hx}" cy="${r1(hy - 37)}" r="8" fill="#40f0e0" opacity="0.45" filter="${c.blur(5)}"/>`;
+  return `<g filter="${c.fx({ seed: 23 })}">${s}</g>${glow}`;
+}
+
+// ---------------------------------------------------------------- spider
+// Giant forest spider, front-on: eight jointed bristly legs, a dark abdomen with
+// a violet diamond, a cluster of glinting red eyes, dripping fangs. attack:
+// front legs reared high, fangs spread wide.
+function spider(c, A) {
+  const legV = c.vol({ k: 4, b: 3, sc: '#0c0402', so: 0.6, ho: 0.3, tex: 0.35, tf: 0.1, tc: '#140602', seed: 81 });
+  const bodyV = c.vol({ k: 10, b: 8, sc: '#020104', so: 0.6, ho: 0.2, tex: 0.4, tf: 0.05, tc: '#000', seed: 82 });
+  const legFill = (dark) => (dark ? c.lg([[0, '#7a3e1a'], [0.5, '#4a200c'], [1, '#160804']], 0.1, 0, 0.9, 1) : c.lg([[0, '#d08a44'], [0.35, '#9a5222'], [0.75, '#5a260e'], [1, '#1e0a04']], 0.1, 0, 0.9, 1));
+  let s = '', drips = '', glow = '';
+  const dy = A ? -14 : 0;
+  // one jointed leg: knots [x, y] from the body out to the tip, widths per knot
+  const leg = (pts, ws, dark, seed) => {
+    const m = (p) => p;
+    let out = '';
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = m(pts[i]), b = m(pts[i + 1]), mid = mix2(a, b, 0.5);
+      const d = rib([[a[0], a[1], ws[i] * 0.9], [mid[0], mid[1], (ws[i] + ws[i + 1]) * 0.55], [b[0], b[1], i === pts.length - 2 ? 0 : ws[i + 1] * 0.85]], 1, 0.6);
+      out += P(d, legFill(dark), `filter="${legV}"`);
+      // bristles along the segment, swept toward the tip
+      const dx = b[0] - a[0], dyy = b[1] - a[1], L = Math.hypot(dx, dyy), ux = dx / L, uy = dyy / L;
+      const ang = (Math.atan2(uy, ux) * 180) / Math.PI;
+      let br = '';
+      const R = rng(seed + i * 7);
+      const n = Math.round(L / 4.4);
+      for (let k = 0; k < n; k++) {
+        const t = R(), sd = R() < 0.5 ? -1 : 1, w = lerp(ws[i], ws[i + 1], t) * 0.5;
+        const x = a[0] + dx * t - uy * w * sd * 0.9, y = a[1] + dyy * t + ux * w * sd * 0.9;
+        const aa = ((ang + sd * (30 + R() * 22)) * Math.PI) / 180, len = 4 + R() * 6;
+        br += `<path d="M${r1(x)} ${r1(y)}l${r1(Math.cos(aa) * len)} ${r1(Math.sin(aa) * len)}" stroke="${R() < 0.25 && !dark ? '#e0a060' : '#120604'}" stroke-width="${r1(0.8 + R() * 0.6)}" opacity="${r1(0.6 + R() * 0.4)}"/>`;
+      }
+      out += `<g fill="none" stroke-linecap="round">${br}</g>`;
+      out += c.inside(d, line(c, `M${r1(a[0] - uy * ws[i] * 0.25)} ${r1(a[1] + ux * ws[i] * 0.25)}L${r1(b[0] - uy * ws[i + 1] * 0.25)} ${r1(b[1] + ux * ws[i + 1] * 0.25)}`, dark ? '#a0602a' : '#f0b070', 2.4, 1.6, dark ? 0.3 : 0.55) +
+        blob(c, ell(b[0], b[1], ws[i] * 0.7, ws[i] * 0.7), '#1a0604', 4, 0.6));
+      // joint knob with a darker band
+      if (i < pts.length - 2) out += P(ell(b[0], b[1], ws[i + 1] * 0.62, ws[i + 1] * 0.62), dark ? '#2a0e06' : c.rg([[0, '#9a4a1e'], [0.7, '#3a1406'], [1, '#160602']], 0.35, 0.3, 0.8));
+    }
+    return out;
+  };
+  const mir = (pts) => pts.map(([x, y]) => [640 - x, y]);
+  const pairs = [
+    // back pairs behind the body (darker), then the second pair, then the front pair
+    { p: [[292, 214 + dy], [214, 74], [156, 232], [140, 404]], w: [18, 15, 11, 6], dark: true },
+    { p: [[286, 230 + dy], [172, 96], [96, 270], [76, 430]], w: [21, 17, 12, 6], dark: true },
+    { p: [[282, 252 + dy], [124, 140], [46, 310], [28, 474]], w: [24, 19, 13, 7], dark: false },
+    A ? { p: [[284, 278 + dy], [184, 176], [182, 64], [236, 22]], w: [27, 21, 14, 7], dark: false, front: true }
+      : { p: [[284, 282 + dy], [182, 206], [168, 368], [208, 478]], w: [27, 21, 14, 7], dark: false, front: true },
+  ];
+  // back legs, abdomen, second pair, head, front pair
+  let backLegs = '';
+  pairs.slice(0, 2).forEach((L, i) => { backLegs += leg(L.p, L.w, L.dark, 300 + i * 10) + leg(mir(L.p), L.w, L.dark, 400 + i * 10); });
+  s += backLegs;
+  // abdomen: rising behind the head, banded with a violet diamond
+  const abd = tuft([[320, 50 + dy], [404, 66 + dy], [458, 118 + dy], [462, 182 + dy], [420, 232 + dy], [320, 250 + dy], [220, 232 + dy], [178, 182 + dy], [182, 118 + dy], [236, 66 + dy]].map((p) => [...p, 1, 4]), { seed: 501, lean: 0.2, n: 3, jit: 0.8 });
+  s += P(abd, c.lg([[0, '#3e3470'], [0.3, '#1e1a3c'], [0.7, '#0c0a1a'], [1, '#030206']], 0.2, 0, 0.8, 1), `filter="${bodyV}"`);
+  const dia = sm([[320, 82 + dy, 0.3], [356, 140 + dy, 0.4], [320, 206 + dy, 0.3], [284, 140 + dy, 0.4]]);
+  s += c.inside(abd,
+    blob(c, ell(270, 100 + dy, 60, 30, -20), '#6a5aa8', 16, 0.45) +
+    // chevrons and spots around the diamond
+    [[-1, 0], [1, 0]].map(([sd]) => [0, 1, 2].map((k) => line(c, `M${320 + sd * (52 + k * 22)} ${110 + k * 16 + dy}L${320 + sd * (70 + k * 22)} ${132 + k * 16 + dy}L${320 + sd * (52 + k * 22)} ${154 + k * 16 + dy}`, '#2a2a6a', 5, 2, 0.6)).join('')).join('') +
+    [[262, 112], [378, 112], [240, 160], [400, 160], [282, 196], [358, 196]].map(([x, y]) => `<ellipse cx="${x}" cy="${y + dy}" rx="7" ry="5" fill="#3a6ad0" opacity="0.75" filter="${c.blur(1.2)}"/>`).join('') +
+    P(dia, c.lg([[0, '#e0c0ff'], [0.35, '#a060ff'], [0.75, '#6a28c8'], [1, '#2a0a60']], 0.2, 0, 0.8, 1)) +
+    P(sm([[320, 112 + dy, 0.3], [334, 140 + dy, 0.4], [320, 172 + dy, 0.3], [306, 140 + dy, 0.4]]), c.lg([[0, '#3a1480'], [1, '#0c0420']], 0, 0, 0, 1)) +
+    blob(c, dia, '#c890ff', 10, 0.35) +
+    c.strands({ x0: 180, y0: 50 + dy, x1: 460, y1: 250 + dy, n: 420, a: 0, spread: 180, len: 8, w: 1.1, cols: ['#000', '#4a4280', '#000'], op: 0.45, field: (x, y) => (Math.atan2(y - 260, x - 320) * 180) / Math.PI }) +
+    blob(c, ell(320, 230 + dy, 150, 40), '#000', 18, 0.55) + blob(c, ell(250, 86 + dy, 40, 12, -25), '#d8d0ff', 8, 0.35));
+  // second pair of legs
+  s += leg(pairs[2].p, pairs[2].w, false, 320) + leg(mir(pairs[2].p), pairs[2].w, false, 420);
+  // cephalothorax
+  const ceph = tuft([[320, 206 + dy], [374, 216 + dy], [398, 250 + dy], [392, 292 + dy], [360, 316 + dy], [320, 322 + dy], [280, 316 + dy], [248, 292 + dy], [242, 250 + dy], [266, 216 + dy]].map((p) => [...p, 1, 3]), { seed: 511, lean: 0.3, n: 3, jit: 0.8 });
+  s += P(ceph, c.lg([[0, '#6a3a26'], [0.35, '#3a1a10'], [0.75, '#160806'], [1, '#050202']], 0.2, 0, 0.8, 1), `filter="${bodyV}"`);
+  s += c.inside(ceph, line(c, `M320 ${214 + dy}L320 ${236 + dy}`, '#000', 4, 2, 0.6) + blob(c, ell(290, 226 + dy, 30, 12, -15), '#b07040', 10, 0.35) +
+    c.strands({ x0: 240, y0: 206 + dy, x1: 400, y1: 322 + dy, n: 140, a: 0, spread: 180, len: 7, w: 1, cols: ['#000', '#7a4a2a'], op: 0.5, field: (x, y) => (Math.atan2(y - 250 - dy, x - 320) * 180) / Math.PI }));
+  // front pair (in front of the body)
+  s += leg(pairs[3].p, pairs[3].w, false, 330) + leg(mir(pairs[3].p), pairs[3].w, false, 430);
+  // pedipalps
+  for (const sd of [-1, 1]) {
+    const pp = [[320 + sd * 30, 300 + dy], [320 + sd * 56, 318 + dy], [320 + sd * 54, 352 + dy], [320 + sd * 42, 370 + dy]];
+    s += leg(pp, [12, 11, 9, 6], false, 600 + sd);
+  }
+  // chelicerae and fangs
+  const spread = A ? 14 : 0;
+  for (const sd of [-1, 1]) {
+    const cx = 320 + sd * (22 + spread * 0.6), cy = 334 + dy;
+    const ch = tuft([[cx - 21, cy - 26], [cx + 21, cy - 26], [cx + 24, cy + 8, 1, 3], [cx + 12 * sd, cy + 36], [cx - 12 * sd, cy + 36], [cx - 24, cy + 8, 1, 3]].map((p) => [p[0], p[1], p[2] ?? 1, p[3] ?? 0]), { seed: 521 + sd, n: 3, jit: 0.8 });
+    s += P(ch, c.lg([[0, '#8a4a2a'], [0.4, '#4a2010'], [1, '#100402']], 0.2, 0, 0.8, 1), `filter="${c.vol({ k: 5, b: 4, sc: '#050202', so: 0.6, ho: 0.3, tex: 0.4, tf: 0.1, tc: '#000', seed: 83 })}"`);
+    s += c.inside(ch, c.strands({ x0: cx - 22, y0: cy - 24, x1: cx + 22, y1: cy + 32, n: 50, a: 95, spread: 25, len: 7, w: 1, cols: ['#000', '#a06a3a'], op: 0.6 }));
+    // the fang: glossy black curving to a pale point
+    const base = [cx + sd * 2, cy + 28];
+    const tip = A ? [cx + sd * 34, cy + 76] : [cx - sd * 12, cy + 70];
+    const ctrl = A ? [cx + sd * 28, cy + 46] : [cx + sd * 8, cy + 56];
+    const fang = rib([[base[0], base[1], 14], [ctrl[0], ctrl[1], 10], [lerp(ctrl[0], tip[0], 0.6), lerp(ctrl[1], tip[1], 0.6), 5.5], [tip[0], tip[1], 0]], 0.6);
+    s += P(fang, c.lg([[0, '#2a2420'], [0.5, '#0a0806'], [0.85, '#8a8070'], [1, '#e8e0d0']], 0, 0, 0.3, 1));
+    s += c.inside(fang, line(c, `M${r1(base[0] - 2)} ${r1(base[1] + 2)}Q${r1(ctrl[0] - 2)} ${r1(ctrl[1])} ${r1(lerp(ctrl[0], tip[0], 0.6) - 1)} ${r1(lerp(ctrl[1], tip[1], 0.6))}`, '#ffffff', 1.6, 0.6, 0.7));
+    // venom drip: a bead at the tip and a falling strand
+    const dl = A ? 26 : 34;
+    drips += `<path d="${rib([[tip[0], tip[1] - 1, 4], [tip[0] + sd * 0.5, tip[1] + dl * 0.5, 2.5], [tip[0], tip[1] + dl, 5.5]], 0.4, 1.2)}" fill="${c.lgU([[0, '#d8ff70', 0.9], [0.6, '#8ae020', 0.85], [1, '#4aa010', 0.95]], tip[0], tip[1], tip[0], tip[1] + dl)}"/>` +
+      `<circle cx="${r1(tip[0] - 1.5)}" cy="${r1(tip[1] + dl - 1.5)}" r="1.6" fill="#ffffff" opacity="0.9"/>` +
+      `<ellipse cx="${r1(tip[0] + sd * 8)}" cy="${r1(tip[1] + dl + 26)}" rx="3" ry="4.5" fill="#9ae830" opacity="0.85"/>`;
+    glow += `<circle cx="${r1(tip[0])}" cy="${r1(tip[1] + dl * 0.6)}" r="12" fill="#8ae020" opacity="0.3" filter="${c.blur(6)}"/>`;
+  }
+  // the eyes: a cluster of glossy red beads
+  const eyes = [[304, 254, 12.5], [336, 254, 12.5], [289, 233, 7.5], [351, 233, 7.5], [275, 252, 6.5], [365, 252, 6.5], [310, 226, 4.6], [330, 226, 4.6]];
+  for (const [x, y0, r] of eyes) {
+    const y = y0 + dy;
+    s += `<circle cx="${x}" cy="${y}" r="${r + 2}" fill="#050202"/>`;
+    s += `<circle cx="${x}" cy="${y}" r="${r}" fill="${c.rgU([[0, '#ff6a50'], [0.35, '#d01818'], [0.75, '#6a0404'], [1, '#200000']], x - r * 0.3, y - r * 0.3, r * 1.2)}"/>`;
+    s += `<ellipse cx="${r1(x - r * 0.35)}" cy="${r1(y - r * 0.4)}" rx="${r1(r * 0.32)}" ry="${r1(r * 0.22)}" fill="#ffffff" opacity="0.95" transform="rotate(-30 ${r1(x - r * 0.35)} ${r1(y - r * 0.4)})"/>`;
+    s += `<path d="M${r1(x + r * 0.2)} ${r1(y + r * 0.75)}A${r * 0.8} ${r * 0.8} 0 0 0 ${r1(x + r * 0.78)} ${r1(y + r * 0.1)}" fill="none" stroke="#9fc4ff" stroke-width="${r1(Math.max(1, r * 0.12))}" opacity="0.6"/>`;
+    glow += `<circle cx="${x}" cy="${y}" r="${r * 1.6}" fill="#ff2a10" opacity="${A ? 0.4 : 0.28}" filter="${c.blur(r * 0.7)}"/>`;
+  }
+  return `<g filter="${c.fx({ seed: 29 })}">${s}</g>${drips}${glow}`;
 }
 
 // ---------------------------------------------------------------- registry
@@ -1131,6 +1648,9 @@ const SPECS = {
   wolf: { w: 640, h: 440, height: 1.1, draw: wolf, seed: 23 },
   hound: { w: 640, h: 480, height: 1.25, draw: hound, seed: 37 },
   wraith: { w: 560, h: 720, height: 2.2, draw: wraith, seed: 41 },
+  wight: { w: 480, h: 680, height: 1.9, draw: wight, seed: 43 },
+  barrowking: { w: 640, h: 840, height: 2.5, draw: barrowking, seed: 47 },
+  spider: { w: 640, h: 480, height: 1.3, draw: spider, seed: 53 },
 };
 
 function build() {

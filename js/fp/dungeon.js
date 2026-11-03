@@ -239,7 +239,8 @@ export class Level {
     if (this.hd) {
       const map = { shardsun: 'shardsun', shardmoon: 'shardmoon', shardstar: 'shardstar' };
       const hdName = map[name] || name;
-      const o = this.hdThing(hdName, x, y, { ...opts, lift: name === 'torch' ? (opts.lift ?? 0) + 0.3 : opts.lift });
+      // The 3D torch stands on its back plate, so it mounts lower than the sprite did.
+      const o = this.hdThing(hdName, x, y, { ...opts, lift: name === 'torch' ? 1.15 : opts.lift });
       if (o && name === 'torch') this.torches.push(o);
       return o;
     }

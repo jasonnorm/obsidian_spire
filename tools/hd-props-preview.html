@@ -109,16 +109,19 @@ const DUSK_FOG = new THREE.Color('#7d6470');
 const sky = new THREE.Mesh(
   new THREE.SphereGeometry(600, 32, 16),
   new THREE.ShaderMaterial({
-    uniforms: { uSun: { value: sunDir }, uHorizon: { value: new THREE.Color('#e49a62') }, uMid: { value: new THREE.Color('#8a5c76') }, uZenith: { value: new THREE.Color('#1d2448') } },
+    uniforms: { uFog: { value: new THREE.Color('#7d6470') }, uSun: { value: sunDir }, uHorizon: { value: new THREE.Color('#e49a62') }, uMid: { value: new THREE.Color('#8a5c76') }, uZenith: { value: new THREE.Color('#1d2448') } },
     vertexShader: 'varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader: `uniform vec3 uSun, uHorizon, uMid, uZenith; varying vec3 vDir;
+    fragmentShader: `uniform vec3 uFog, uSun, uHorizon, uMid, uZenith; varying vec3 vDir;
       void main(){ vec3 d = normalize(vDir); float h = d.y;
         float s = max(dot(d, uSun), 0.0);
         vec3 hor = mix(uHorizon * 0.75, uHorizon * 1.15, pow(s, 3.0));
         vec3 c = mix(hor, uMid, smoothstep(0.0, 0.22, h)); c = mix(c, uZenith, smoothstep(0.18, 0.75, h));
         c += vec3(1.0, 0.75, 0.45) * (pow(s, 900.0) * 30.0 + pow(s, 24.0) * 0.5);
-        if (h < 0.0) c = mix(hor, uHorizon * 0.35, smoothstep(0.0, -0.2, h));
-        gl_FragColor = vec4(c, 1.0); }`,
+        c = mix(c, uFog, smoothstep(0.1, -0.02, h));
+        gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
     side: THREE.BackSide, depthWrite: false, fog: false,
   }),
 );
@@ -149,12 +152,12 @@ if (useEnv) {
 
 /* --------------------------------------------------------------- ground */
 const groundTex = makeTex(512, (u, v, o) => {
-  const n = tfbm(u, v, 6, 5, 3), f = tfbm(u, v, 48, 2, 9), g = tnoise(u * 160, v * 160, 160, 13);
+  const n = tfbm(u, v, 6, 5, 3), f = tfbm(u, v, 24, 3, 9), g = tnoise(u * 128, v * 128, 128, 13);
   const dirt = Math.min(1, Math.max(0, (n - 0.5) * 4 + 0.35));
-  const L = 0.7 + 0.25 * (f - 0.5) + 0.25 * (g - 0.5);
+  const L = 0.72 + 0.2 * (f - 0.5) + 0.08 * (g - 0.5);
   o.r = (0.36 * (1 - dirt) + 0.46 * dirt) * L; o.g = (0.4 * (1 - dirt) + 0.36 * dirt) * L; o.b = (0.2 * (1 - dirt) + 0.26 * dirt) * L;
   o.h = f * 0.5 + g * 0.5;
-}, 3, 90);
+}, 2, 70);
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(420, 420), new THREE.MeshStandardMaterial({ ...groundTex, roughness: 0.95 }));
 ground.rotation.x = -Math.PI / 2;
 ground.receiveShadow = true;
@@ -169,7 +172,7 @@ function label(text, x, y, z, s = 1) {
   g.fillStyle = '#f2dcb4'; g.font = '600 26px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 128, 33);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthWrite: false, fog: false, toneMapped: false }));
-  sp.scale.set(1.6 * s, 0.4 * s, 1);
+  sp.scale.set(1.2 * s, 0.3 * s, 1);
   sp.position.set(x, y, z);
   sp.renderOrder = 10;
   scene.add(sp);
@@ -266,7 +269,8 @@ for (const kind of PROPS) {
   scene.add(obj);
   if (obj.userData.update) animated.push(obj);
   let t = 0;
-  obj.traverse((o) => { if (o.isMesh && !o.userData.noShadow) t += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+  // Count the solid model, not the animated flame and spark sprites.
+  obj.traverse((o) => { if (o.isMesh && !/flame|spark/.test(o.material.name)) t += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
   tris[kind] = Math.round(t);
   spots['prop:' + kind] = { x, z: PROW, size: Math.max(HEIGHT[kind], WIDTH[kind] * 0.8), y0: kind === 'torch' ? 1 : 0 };
   label(kind, x, (kind === 'torch' ? 1 : 0) + HEIGHT[kind] + 0.45, PROW, 0.8);
@@ -310,7 +314,7 @@ const flagTex = makeTex(256, (u, v, o) => {
   const ceil = new THREE.Mesh(new THREE.PlaneGeometry(12, 12), new THREE.MeshStandardMaterial({ color: '#2a2622', roughness: 1 }));
   ceil.rotation.x = Math.PI / 2; ceil.position.set(0, 4.2, DZ + 3); dungeon.add(ceil);
   const torch = makeProp('torch');
-  torch.position.set(0.4, 1.35, DZ);
+  torch.position.set(-1.9, 1.3, DZ);
   dungeon.add(torch); animated.push(torch);
   torch.userData.light.castShadow = q.get('torchshadow') !== '0';
   torch.userData.light.shadow.mapSize.set(512, 512);
@@ -318,13 +322,13 @@ const flagTex = makeTex(256, (u, v, o) => {
   torch.userData.light.shadow.normalBias = 0.02;
   torch.userData.light.shadow.camera.near = 0.15;
   const place = (kind, x, z, ry = 0) => { const o = makeProp(kind); o.position.set(x, 0, DZ + z); o.rotation.y = ry; dungeon.add(o); if (o.userData.update) animated.push(o); return o; };
-  place('chestopen', -1.6, 1.0, 0.35);
-  place('bones', 0.9, 1.6, 0.6);
-  place('barrel', -3.4, 1.4);
-  place('crate', -3.35, 2.55, 0.2);
-  place('chest', 2.7, 0.9, -0.5);
+  place('chestopen', -2.5, 0.75, 0.45);
+  place('bones', -0.7, 1.5, 0.6);
+  place('barrel', -3.6, 0.55);
+  place('crate', -3.55, 1.7, 0.2);
+  place('chest', 0.7, 0.75, -0.45);
   const rockParts = makeVegetation('rock');
-  for (const [x, z, s] of [[1.9, 2.3, 0.5], [-2.6, 3.4, 0.35]]) {
+  for (const [x, z, s] of [[0.2, 2.2, 0.5], [-3.1, 3.0, 0.35]]) {
     for (const p of rockParts) { const m = new THREE.Mesh(p.geometry, p.material); m.position.set(x, 0, DZ + z); m.scale.setScalar(s); m.castShadow = m.receiveShadow = true; dungeon.add(m); }
   }
 }
@@ -337,7 +341,7 @@ const PRESETS = {
   propsL: { pos: [-9.5, 2.5, 10.5], look: [-9.5, 0.8, 4], mode: 'dusk' },
   propsR: { pos: [8.5, 2.6, 11], look: [8.5, 0.9, 4], mode: 'dusk' },
   shards: { pos: [0.4, 1.1, 11.2], look: [0, 0.6, 8.5], mode: 'dusk' },
-  dungeon: { pos: [2.4, 1.7, DZ + 5.4], look: [-0.7, 0.95, DZ + 0.6], mode: 'dungeon' },
+  dungeon: { pos: [1.3, 1.55, DZ + 4.1], look: [-1.9, 0.85, DZ + 0.6], mode: 'dungeon' },
 };
 function setMode(mode) {
   const dusk = mode === 'dusk';
