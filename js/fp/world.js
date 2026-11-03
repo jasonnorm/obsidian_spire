@@ -426,6 +426,11 @@ export class Overland {
     const steps = box(9, 4, 4, obs, 2);
     steps.position.set(0, 2, SPIRE_R + 4.2);
     gate.add(steps);
+    // Torches either side of the gate so it reads against the black stone.
+    const gateLight = new THREE.PointLight('#ffaa55', 14, 26, 1.3);
+    gateLight.position.set(0, 6, SPIRE_R + 8);
+    gate.add(gateLight);
+    for (const x of [-4.2, 4.2]) this.prop('torch', x, SPIRE_R + 3.4, { parent: gate, y: 6, height: 1.6 });
     g.add(gate);
     this.spireGate = gate;
     this.scene.add(g);

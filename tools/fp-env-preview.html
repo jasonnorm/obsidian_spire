@@ -171,11 +171,10 @@
     const c1 = el('div'); c1.appendChild(scaled(cv, 1)); c1.appendChild(el('div', 'cap', '1x'));
     const c4 = el('div'); c4.appendChild(scaled(cv, 4)); c4.appendChild(el('div', 'cap', '4x'));
     row.appendChild(c1); row.appendChild(c4);
-    if (spec.tile) {
-      const ct = el('div'); ct.appendChild(scaled(cv, 2, 3, 3)); ct.appendChild(el('div', 'cap', '3&times;3 at 2x'));
-      ct.dataset.tiled = name;
-      row.appendChild(ct);
-    }
+    const ct = el('div'); ct.appendChild(scaled(cv, 2, 3, 3));
+    ct.appendChild(el('div', 'cap', spec.tile ? '3&times;3 at 2x' : '3&times;3 at 2x (single panel, not meant to tile)'));
+    ct.dataset.tiled = name;
+    row.appendChild(ct);
     card.appendChild(row);
     $('texs').appendChild(card);
   }

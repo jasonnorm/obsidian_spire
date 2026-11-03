@@ -584,7 +584,7 @@ function barrowceil() {
   const t = new Pix(64, 64);
   t.fill((x, y) => {
     const n = fbm(t, x, y, 4, 3, 141);
-    const v = 0.44 + (n - 0.5) * 0.5 + (hash(x, y, 142) - 0.5) * 0.2;
+    const v = 0.38 + (n - 0.5) * 0.5 + (hash(x, y, 142) - 0.5) * 0.2;
     return ramp(v, [K, BROWN], x, y);
   });
   const r = rng(143);
@@ -592,7 +592,7 @@ function barrowceil() {
     let dir = r() * Math.PI * 2;
     walk(t, r() * 64, r() * 64, 24 + Math.floor(r() * 24), () => { dir += (r() - 0.5) * 0.8; return [Math.cos(dir), Math.sin(dir)]; }, (x, y, k) => {
       t.set(x, y + 1, K);
-      t.set(x, y, k % 6 === 0 ? SAND : BROWN);
+      t.set(x, y, k % 4 === 0 ? SAND : BROWN);
     });
   }
   // a beam across the tile, casting shadow either side
@@ -720,13 +720,13 @@ function wood() {
   const t = new Pix(64, 64);
   const r = rng(181);
   const joints = Array.from({ length: 8 }, () => Math.floor(r() * 64));
-  const tone = Array.from({ length: 8 }, () => (r() - 0.5) * 0.1);
+  const tone = Array.from({ length: 8 }, () => (r() - 0.5) * 0.06);
   const knots = Array.from({ length: 3 }, () => [Math.floor(r() * 64), Math.floor(r() * 8) * 8 + 3]);
   t.fill((x, y) => {
     const p = Math.floor(y / 8); const ly = y % 8;
     if (ly === 7) return K;
     if (mod(x - joints[p], 64) === 0) return K;
-    let v = 0.62 + tone[p];
+    let v = 0.645 + tone[p];
     if (ly === 0) v += 0.22;
     if (ly === 6) v -= 0.26;
     if (mod(x - joints[p], 64) === 1) v += 0.16;
@@ -782,11 +782,11 @@ function door() {
     const di = Math.floor((x - x0) / 7.4);
     const lx = x + 0.5 - (x0 + di * 7.4);
     if (lx < 1) return K;
-    let v = 0.6 + (lx < 2 ? 0.2 : lx > 6.2 ? -0.24 : 0) + (hash(di, 0, 194) - 0.5) * 0.1;
+    let v = 0.645 + (lx < 2 ? 0.2 : lx > 6.2 ? -0.24 : 0) + (hash(di, 0, 194) - 0.5) * 0.05;
     const g = Math.sin(y * 0.21 + di * 2 + Math.sin(y * 0.07 + di) * 2 + lx * 1.4);
     if (g > 0.86) v -= 0.26;
     if (!inOpen(x + 0.5, y - 1.5) || !inOpen(x - 1.5, y + 0.5)) v -= 0.32;
-    v += (hash(x, y, 195) - 0.5) * 0.05;
+    v += (hash(x, y, 195) - 0.5) * 0.03;
     return ramp(v, [K, MAROON, BROWN, SAND], x, y);
   });
   for (const by of [28, 56, 82]) {
@@ -799,15 +799,14 @@ function door() {
     }
     t.stamp(['.dd.', 'dccd', 'cc0.', '0...'], x1 - 3, by - 1);
   }
-  t.stamp(['.dc.', 'dcc0', 'c00c', '.c0.'], 42, 59);
-  t.stamp([
-    '.ddc.',
-    'd0..c',
-    'd...c',
-    'd...0',
-    '.cc0.',
-  ], 41, 63);
-  t.stamp(['cdc', 'c0c', 'c0c', 'cc0'], 43, 70);
+  // ring pull hanging from a riveted boss, and a keyhole plate
+  t.stamp(['.0000.', '0dddc0', '0dedc0', '0dccc0', '.0cc0.'], 41, 58);
+  for (let y = 61; y <= 71; y++) for (let x = 39; x <= 49; x++) {
+    const d = Math.hypot(x + 0.5 - 44, y + 0.5 - 66.5);
+    if (Math.abs(d - 3.6) < 0.7) t.set(x, y, x + y < 109 ? LTGRY : DKGRY);
+    else if (Math.abs(d - 4.4) < 0.5 && x + y > 110) t.set(x, y, K);
+  }
+  t.stamp(['0000', '0dc0', '0c00', '0c00', '0000'], 42, 73);
   return t;
 }
 
@@ -935,9 +934,9 @@ function grassmound() {
 const RUNES = [
   [[2, 0, 2, 8], [2, 2, 4, 0], [2, 4, 0, 2], [2, 6, 4, 4]],
   [[2, 0, 2, 8], [2, 2, 0, 4], [0, 4, 2, 6], [2, 2, 4, 4], [4, 4, 2, 6]],
-  [[0, 0, 0, 8], [4, 0, 4, 8], [0, 3, 4, 5], [0, 5, 4, 3]],
-  [[2, 0, 2, 8], [0, 2, 2, 0], [2, 0, 4, 2], [0, 8, 4, 8]],
-  [[0, 0, 2, 2], [4, 0, 2, 2], [2, 2, 2, 8], [0, 8, 4, 6]],
+  [[0, 2, 2, 0], [2, 0, 4, 2], [4, 2, 2, 4], [2, 4, 0, 2], [2, 4, 2, 8], [0, 8, 4, 8]],
+  [[2, 0, 2, 8], [0, 2, 2, 0], [2, 0, 4, 2], [0, 5, 4, 5]],
+  [[4, 0, 4, 8], [4, 1, 0, 3], [0, 3, 4, 5], [4, 8, 1, 6]],
   [[2, 0, 2, 8], [0, 2, 2, 4], [4, 2, 2, 4], [0, 5, 2, 7], [4, 5, 2, 7]],
   [[0, 1, 4, 1], [2, 1, 2, 8], [0, 6, 2, 4], [4, 6, 2, 4]],
   [[4, 0, 0, 4], [0, 4, 4, 4], [4, 4, 0, 8]],
