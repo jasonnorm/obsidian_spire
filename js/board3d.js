@@ -10,6 +10,13 @@ import { mulberry32 } from './engine.js';
 const TOP_R = 10.6; // painted top face radius
 const TEX = 2048;
 const SHARD_COLOR = Object.fromEntries(SHARDS.map((s) => [s.id, s.color]));
+// The follow camera. A pawn is about 1.3 units tall; at these distances it
+// fills roughly half the frame height.
+const FOCUS_DIST = 4.2;   // turn start
+const FOCUS_ELEV = 0.5;   // radians above the board
+const FOLLOW_DIST = 3.6;  // while walking
+const FOLLOW_ELEV = 0.44;
+const FOLLOW_TARGET_Y = 0.7;
 const TYPE_RING = { keep: null, market: '#d9a521', shrine: '#efe3c4', barrow: '#7d8a74', wilds: null };
 
 function w2c(x, z) {
@@ -429,7 +436,7 @@ export class Board3D {
     ctl.target.set(0, 0.2, 0.6);
     ctl.enableDamping = true;
     ctl.dampingFactor = 0.08;
-    ctl.minDistance = 7;
+    ctl.minDistance = 2.4;
     ctl.maxDistance = 38;
     ctl.maxPolarAngle = 1.3;
     ctl.minPolarAngle = 0.2;
@@ -839,8 +846,8 @@ export class Board3D {
     if (!pw) return;
     this.followPid = null;
     this.camTween = null;
-    const target = pw.position.clone().setY(0.9);
-    this.aim(target, this.outward(pw.position), 8.5, 0.62);
+    const target = pw.position.clone().setY(FOLLOW_TARGET_Y);
+    this.aim(target, this.outward(pw.position), FOCUS_DIST, FOCUS_ELEV);
   }
 
   // The human is choosing a road: frame the pawn and every space it can reach.
@@ -850,8 +857,13 @@ export class Board3D {
     const pts = [pw.position.clone(), ...ids.map((id) => new THREE.Vector3(NODE_BY_ID[id].x, 0, NODE_BY_ID[id].z))];
     const c = pts.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(1 / pts.length);
     const radius = Math.max(...pts.map((p) => p.distanceTo(c)));
-    const fit = (radius + 1.6) / Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / Math.min(1, this.camera.aspect);
-    this.aim(c.setY(0.6), this.outward(pw.position), Math.max(9, Math.min(26, fit * 0.95)), 0.8);
+    // The board is tilted away from the lens, so its depth shrinks on screen
+    // by sin(elevation); fit the spread across and the spread in depth.
+    const elev = 0.78;
+    const tanV = Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const fitV = (radius * Math.sin(elev) + 1.1) / tanV;
+    const fitH = (radius + 1.1) / (tanV * this.camera.aspect);
+    this.aim(c.setY(0.6), this.outward(pw.position), Math.max(6, Math.min(24, Math.max(fitV, fitH))), elev);
   }
 
   // While a pawn walks, keep it in view from the same side.
@@ -859,11 +871,30 @@ export class Board3D {
     if (!on) { this.followPid = null; return; }
     if (!this.followOn || this.userCam || this.titleMode || this.paused) return;
     this.followPid = pid;
-    const off = this.camera.position.clone().sub(this.controls.target);
-    const flat = new THREE.Vector3(off.x, 0, off.z);
-    this.followOff = flat.lengthSq() > 0.01 ? off : new THREE.Vector3(0, 6, 6);
-    // Moving pawns get a slightly closer, lower shot.
-    if (this.followOff.length() > 11) this.followOff.setLength(11);
+    // A close, low shot from the board's edge side of the pawn (the side the
+    // turn-start and road-choice shots already look from), held for the walk.
+    const dir = this.outward(this.pawns[pid].position);
+    this.followOff = dir.multiplyScalar(Math.cos(FOLLOW_ELEV) * FOLLOW_DIST)
+      .add(new THREE.Vector3(0, Math.sin(FOLLOW_ELEV) * FOLLOW_DIST, 0));
+  }
+
+  // Move the camera a fraction k of the way to `goal`, travelling round the
+  // board's centre instead of straight across it. The close shots sit low
+  // enough that a straight line from one side to the other would pass
+  // through the Spire, so a long swing also lifts the camera over it and
+  // lets it settle again as it arrives.
+  swingCamera(goal, k) {
+    const p = this.camera.position;
+    const a0 = Math.atan2(p.x, p.z);
+    const a1 = Math.atan2(goal.x, goal.z);
+    let da = a1 - a0;
+    da -= Math.round(da / (2 * Math.PI)) * 2 * Math.PI;
+    const r0 = Math.hypot(p.x, p.z);
+    const r1 = Math.hypot(goal.x, goal.z);
+    const lift = Math.min(7, Math.abs(da) * 5);
+    const a = a0 + da * k;
+    const r = r0 + (r1 - r0) * k;
+    p.set(Math.sin(a) * r, p.y + (goal.y + lift - p.y) * k, Math.cos(a) * r);
   }
 
   resetView(animated = true) {
@@ -911,14 +942,16 @@ export class Board3D {
     } else if (!this.titleMode && !this.userCam) {
       const dt = Math.min(0.05, (now - (this.lastFrame || now)) / 1000);
       if (this.followPid && this.pawns[this.followPid]) {
-        const t2 = this.pawns[this.followPid].position.clone().setY(0.9);
+        // Ignore the little hop of each step, but rise with a long leap.
+        const py = this.pawns[this.followPid].position.y;
+        const t2 = this.pawns[this.followPid].position.clone().setY(FOLLOW_TARGET_Y + Math.max(0, py - 0.6) * 0.85);
         this.camGoal = { target: t2, pos: t2.clone().add(this.followOff) };
       }
       if (this.camGoal) {
         // Exponential smoothing: quick to start, gentle to settle.
-        const k = 1 - Math.exp(-dt * (this.followPid ? 6 : 3.6));
+        const k = 1 - Math.exp(-dt * (this.followPid ? 7 : 3.6));
         this.controls.target.lerp(this.camGoal.target, k);
-        this.camera.position.lerp(this.camGoal.pos, k);
+        this.swingCamera(this.camGoal.pos, k);
         if (!this.followPid && this.camera.position.distanceTo(this.camGoal.pos) < 0.02) this.camGoal = null;
       }
     }
