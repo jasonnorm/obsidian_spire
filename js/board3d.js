@@ -837,7 +837,7 @@ export class Board3D {
     const pw = this.pawns[this.activePid];
     if (pw && !this.titleMode) {
       this.chevron.visible = true;
-      this.chevron.position.set(pw.position.x, pw.position.y + 1.35 + Math.sin(t * 3) * 0.08, pw.position.z);
+      this.chevron.position.set(pw.position.x, pw.position.y + 1.75 + Math.sin(t * 3) * 0.08, pw.position.z);
       this.chevron.rotation.y = t * 1.5;
       this.chevron.material.color.set(this.activePid === 'p' ? PLAYER_COLORS.crimson.light : PLAYER_COLORS.azure.light);
     } else this.chevron.visible = false;

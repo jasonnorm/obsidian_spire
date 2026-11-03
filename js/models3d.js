@@ -1336,18 +1336,18 @@ export function makeShrine() {
     return lathe(pts, 10, 0, 60);
   });
   const flameMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#ff9a2a'),
-    emissive: new THREE.Color(PAL.flame),
-    emissiveIntensity: 0.75,
+    color: new THREE.Color('#ff8a1a'),
+    emissive: new THREE.Color('#ffb84a'),
+    emissiveIntensity: 1.0,
     roughness: 0.4,
     transparent: true,
-    opacity: 0.82,
+    opacity: 0.88,
   });
   const flame = mesh(flameGeo, flameMat, false, false);
   flame.position.y = 0.3;
   flame.renderOrder = 1;
   group.add(flame);
-  const coreMat = new THREE.MeshBasicMaterial({ color: new THREE.Color('#ffe08a') });
+  const coreMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(PAL.flame) });
   const core = mesh(cachedGeos('shrine-orb', () => new THREE.SphereGeometry(0.036, 12, 8)), coreMat, false, false);
   core.position.y = 0.35;
   core.scale.set(1, 1.4, 1);
@@ -1374,9 +1374,9 @@ export function makeShrine() {
       flame.scale.set(1 / Math.sqrt(f), f, 1 / Math.sqrt(f));
       flame.rotation.y = t * 0.8;
       flame.rotation.z = 0.06 * Math.sin(t * 3.1 + phase);
-      flameMat.emissiveIntensity = 0.75 * f;
+      flameMat.emissiveIntensity = 1.0 * f;
       halo.material.opacity = 0.6 * f;
-      pool.material.opacity = 0.55 * f;
+      pool.material.opacity = 0.42 * f;
     },
   };
   return group;
@@ -1386,23 +1386,35 @@ export function makeShrine() {
 /* BARROW                                                              */
 /* ------------------------------------------------------------------ */
 
-const MOUND_TOP = 0.6;
+const MOUND_TOP = 0.56;
 
 function buildBarrowGeos() {
   const k = new Kit();
   const M = 'mound', S = 'stone', Dd = 'door';
-  // lumpy flattened hemisphere with a forecourt scooped out of the front (+z)
-  const g = new THREE.SphereGeometry(1, 26, 10, 0, TAU, 0, Math.PI / 2);
+  // broad tumulus (superellipse profile) with gentle lumps and a forecourt
+  // scooped out of the front (+z) for the doorway
+  const R = 0.7;
+  const prof = [];
+  const N = 9;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N; // 0 at the rim, 1 at the top
+    const r = R * Math.cos((t * Math.PI) / 2);
+    const y = MOUND_TOP * Math.pow(1 - Math.pow(r / R, 2.4), 1 / 2.4);
+    prof.push(new THREE.Vector2(Math.max(r, 0), y));
+  }
+  prof.unshift(new THREE.Vector2(0, 0));
+  const g = new THREE.LatheGeometry(prof, 28, 0);
   const pos = g.getAttribute('position');
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-    const rxz = Math.hypot(x, z);
+    const rxz = Math.hypot(x, z) / R;
     const th = Math.atan2(x, z);
-    const lump = 1 + rxz * (0.045 * Math.sin(3 * th + 0.7) * Math.sin(y * 4 + 0.4) + 0.025 * Math.sin(7 * th + 2.1) * (0.3 + y));
-    const front = Math.exp(-Math.pow(th / 0.42, 2)); // 1 at the front, 0 elsewhere
-    const cut = 1 - 0.3 * front * (1 - 0.5 * y * y);
-    const ny = y * MOUND_TOP * (1 + 0.05 * rxz * Math.sin(5 * th + 1.2) + 0.04 * rxz * Math.sin(2 * th));
-    pos.setXYZ(i, x * 0.7 * lump * cut, ny, z * 0.68 * lump * cut);
+    const h = y / MOUND_TOP;
+    const lump = 1 + 0.05 * Math.sin(2 * th + 0.7) * Math.sin(h * 3 + 0.4) + 0.03 * Math.sin(3 * th + 2.1) * rxz;
+    const front = Math.exp(-Math.pow(th / 0.5, 2));
+    const cut = 1 - 0.38 * front * (1 - 0.6 * h * h);
+    const ny = y * (1 + 0.06 * rxz * rxz * Math.sin(2 * th + 1.2));
+    pos.setXYZ(i, x * lump * cut, ny, z * 0.97 * lump * cut);
   }
   k.add(M, creaseNormals(g, 60));
   // trilithon doorway at the front of the forecourt
@@ -1612,10 +1624,10 @@ function buildPawnGeos() {
   k.add(Bd, xf(chamferBox(0.016, 0.06, 0.02, 0.005), 0, 0.75, 0.077));
   // spear: shaft, collar, leaf-shaped head
   const sx = -0.178, sz = 0.08;
-  k.add(Bd, xf(new THREE.CylinderGeometry(0.011, 0.012, 0.86, 6), sx, 0.07 + 0.43, sz));
-  k.add(Bd, xf(new THREE.CylinderGeometry(0.018, 0.016, 0.03, 8), sx, 0.92, sz));
+  k.add(Bd, xf(new THREE.CylinderGeometry(0.011, 0.012, 0.8, 6), sx, 0.07 + 0.4, sz));
+  k.add(Bd, xf(new THREE.CylinderGeometry(0.018, 0.016, 0.03, 8), sx, 0.865, sz));
   {
-    const head = lathe([[0, 0.93], [0.016, 0.935], [0.032, 0.965], [0.026, 0.995], [0, 1.04]], 4, 0, 20);
+    const head = lathe([[0, 0.875], [0.016, 0.88], [0.03, 0.91], [0.024, 0.94], [0, 0.98]], 4, 0, 20);
     xf(head, 0, 0, 0, 0, Math.PI / 4, 0, 1, 1, 0.55);
     k.add(Bd, xf(head, sx, 0, sz));
   }
@@ -1623,10 +1635,10 @@ function buildPawnGeos() {
   {
     const v = [];
     const n = 5;
-    const L = 0.17, H = 0.07;
+    const L = 0.135, H = 0.065;
     const pt = (u, s) => {
       const x = -u * L;
-      const y = 0.88 - H / 2 + s * H * (1 - u) + (H / 2) * u - 0.015 * u;
+      const y = 0.82 - H / 2 + s * H * (1 - u) + (H / 2) * u - 0.015 * u;
       const z = 0.018 * Math.sin(u * Math.PI * 1.4);
       return [sx + x, y, sz + z];
     };
@@ -1810,9 +1822,9 @@ const DECOR_BUILDERS = {
   },
   rock() {
     const k = new Kit();
-    k.add('rock', xf(rockGeo(0.2, 3, 1, 0.62, 0.22), 0, 0.07, 0));
-    k.add('rock', xf(rockGeo(0.1, 8, 0, 0.7, 0.2), 0.18, 0.03, 0.1));
-    k.add('rock', xf(rockGeo(0.06, 13, 0, 0.7, 0.2), -0.16, 0.02, 0.12));
+    k.add('rock', xf(rockGeo(0.2, 3, 1, 0.95, 0.2), -0.02, 0.13, -0.02));
+    k.add('rock', xf(rockGeo(0.11, 8, 0, 0.8, 0.2), 0.17, 0.04, 0.12));
+    k.add('rock', xf(rockGeo(0.065, 13, 0, 0.75, 0.2), -0.17, 0.025, 0.14));
     return k.build();
   },
   crystalrock() {
@@ -1830,14 +1842,11 @@ const DECOR_BUILDERS = {
     const k = new Kit();
     k.add('sand', xf(rockGeo(0.16, 23, 1, 0.2, 0.08), 0, 0.0, 0));
     const ribbed = (h, r) => {
-      const prof = [[0, 0], [r, 0]];
-      for (let i = 1; i <= 8; i++) {
-        const t = i / 8;
-        const y = h * t;
-        const rr = t < 0.82 ? r : r * Math.cos(((t - 0.82) / 0.18) * (Math.PI / 2) * 0.95);
-        prof.push([Math.max(rr, 0.004), y]);
+      const prof = [[0, 0], [r, 0], [r, (h - r) * 0.5], [r, h - r]];
+      for (let i = 1; i <= 5; i++) {
+        const a = (i / 5) * (Math.PI / 2);
+        prof.push([Math.max(r * Math.cos(a), 0.0), h - r + r * Math.sin(a)]);
       }
-      prof.push([0, h + 0.004]);
       const g = new THREE.LatheGeometry(prof.map(([a, b]) => new THREE.Vector2(a, b)), 16, 0);
       const pos = g.getAttribute('position');
       for (let i = 0; i < pos.count; i++) {
@@ -1859,22 +1868,22 @@ const DECOR_BUILDERS = {
   mushroom() {
     const k = new Kit();
     const shroom = (x, z, s, tilt) => {
-      const stem = lathe([[0, 0], [0.05, 0], [0.042, 0.03], [0.034, 0.12], [0.03, 0.2], [0, 0.2]], 10, 0, 50);
+      const stem = lathe([[0, 0], [0.05, 0], [0.042, 0.03], [0.034, 0.12], [0.03, 0.2], [0, 0.2]], 8, 0, 50);
       const capTop = [];
-      for (let i = 0; i <= 7; i++) {
-        const a = (i / 7) * (Math.PI / 2);
+      for (let i = 0; i <= 5; i++) {
+        const a = (i / 5) * (Math.PI / 2);
         capTop.push([0.15 * Math.cos(a), 0.19 + 0.1 * Math.sin(a)]);
       }
-      const cap = lathe([[0.155, 0.175], ...capTop], 16, 0, 45);
-      const under = lathe([[0, 0.205], [0.035, 0.2], [0.15, 0.178], [0.155, 0.176]], 16, 0, 60);
+      const cap = lathe([[0.155, 0.175], ...capTop], 14, 0, 45);
+      const under = lathe([[0, 0.205], [0.035, 0.2], [0.15, 0.178], [0.155, 0.176]], 14, 0, 60);
       // spots
       const spots = [];
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < (s > 0.8 ? 6 : 3); i++) {
         const a = i * 1.9 + 0.3;
         const el = 0.35 + (i % 3) * 0.32;
         const r = 0.15 * Math.cos(el);
         const y = 0.19 + 0.1 * Math.sin(el);
-        const sp = new THREE.SphereGeometry(0.02 + (i % 2) * 0.008, 8, 4);
+        const sp = new THREE.SphereGeometry(0.02 + (i % 2) * 0.008, 6, 3);
         xf(sp, 0, 0, 0, 0, 0, 0, 1, 0.35, 1);
         xf(sp, 0, 0, 0, -(Math.PI / 2 - el) * 0.9, 0, 0);
         spots.push(xf(sp, r * Math.sin(a), y, r * Math.cos(a), 0, a, 0));

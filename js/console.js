@@ -76,6 +76,7 @@ export class SpireConsole {
     this.window = r.querySelector('#sc-window');
     this.glyphEl = r.querySelector('#sc-glyph');
     this.ticker = r.querySelector('#sc-ticker');
+    this.say = r.querySelector('#sc-say');
     this.lamps = { p: r.querySelector('#lamp-p'), r: r.querySelector('#lamp-r') };
 
     this.ledEl = r.querySelector('#sc-led');
@@ -173,6 +174,7 @@ export class SpireConsole {
     this.setGlyph(evt.glyph);
     this.setLED(evt.led);
     this.typeText(evt.text || '');
+    if (this.say) this.say.textContent = evt.text || '';
     this.setMood(evt.mood || 'idle');
   }
 
