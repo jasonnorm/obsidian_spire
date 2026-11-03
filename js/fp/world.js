@@ -51,7 +51,25 @@ export class Overland {
     this.build();
   }
 
+  // Asset hooks. The retro look uses the pixel-art textures and sprites;
+  // the modern look (world-hd.js) overrides these.
+  mat(name, opts) { return lambert(tex(name, name !== 'door'), opts); }
+  glowMat(name) {
+    const t = cachedTexture(`tex:${name}`, () => makeTexture(name), { repeat: true, mips: false });
+    return new THREE.MeshBasicMaterial({ map: t, side: THREE.DoubleSide, fog: false });
+  }
+  box(w, h, d, name, unit = 4) { return box(w, h, d, typeof name === 'string' ? this.mat(name) : name, unit); }
+
   build() {
+    this.buildSky();
+    this.buildGround();
+    this.buildRoads();
+    this.buildSites();
+    this.buildSpire();
+    this.scatter();
+  }
+
+  buildSky() {
     const s = this.scene;
     s.fog = new THREE.Fog('#550000', 70, 260);
 
@@ -111,12 +129,6 @@ export class Overland {
     ring.position.y = 22;
     s.add(ring);
     this.mountains = ring;
-
-    this.buildGround();
-    this.buildRoads();
-    this.buildSites();
-    this.buildSpire();
-    this.scatter();
   }
 
   buildGround() {
@@ -126,17 +138,17 @@ export class Overland {
       const g = new THREE.RingGeometry(ASH_R, GROUND_R, 12, 4, thetaStart, Math.PI / 3);
       g.rotateX(-Math.PI / 2);
       worldUV(g, 6);
-      const m = new THREE.Mesh(g, lambert(tex(TERRAIN_TEX[pv.terrain])));
+      const m = new THREE.Mesh(g, this.mat(TERRAIN_TEX[pv.terrain]));
       s.add(m);
     }
     const ash = new THREE.CircleGeometry(ASH_R + 0.01, 48);
     ash.rotateX(-Math.PI / 2);
     worldUV(ash, 6);
-    s.add(new THREE.Mesh(ash, lambert(tex('ash'))));
+    s.add(new THREE.Mesh(ash, this.mat('ash')));
   }
 
   buildRoads() {
-    const mat = lambert(tex('road'));
+    const mat = this.mat('road');
     mat.polygonOffset = true;
     mat.polygonOffsetFactor = -2;
     for (const [a, b] of EDGES) {
@@ -234,8 +246,8 @@ export class Overland {
   }
 
   makeKeep(g, mine) {
-    const wall = lambert(tex('stonewall'));
-    const roof = lambert(tex('rooftile'));
+    const wall = this.mat('stonewall');
+    const roof = this.mat('rooftile');
     const S = 18;
     const H = 6.5;
     const T = 1.2;
@@ -248,7 +260,7 @@ export class Overland {
     add(box(seg, H, T, wall), 5 / 2 + seg / 2, H / 2, S / 2);
     add(box(5, 1.6, T, wall), 0, H - 0.8, S / 2);
     // Gate.
-    const door = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 5.2), lambert(tex('door', false)));
+    const door = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 5.2), this.mat('door'));
     add(door, 0, 2.6, S / 2 - 0.2);
     // Crenellations.
     for (let i = -S / 2; i <= S / 2; i += 1.8) {
@@ -272,12 +284,12 @@ export class Overland {
   }
 
   makeMarket(g) {
-    const wood = lambert(tex('wood'));
-    const canvas = lambert(tex('canvas'), { side: THREE.DoubleSide });
+    const wood = this.mat('wood');
+    const canvas = this.mat('canvas', { side: THREE.DoubleSide });
     const cob = new THREE.CircleGeometry(8.5, 20);
     cob.rotateX(-Math.PI / 2);
     worldUV(cob, 3);
-    const yard = new THREE.Mesh(cob, lambert(tex('cobble')));
+    const yard = new THREE.Mesh(cob, this.mat('cobble'));
     yard.position.y = 0.04;
     g.add(yard);
     const stall = (x, z, rot) => {
@@ -310,7 +322,7 @@ export class Overland {
   }
 
   makeShrine(g) {
-    const marble = lambert(tex('marble'));
+    const marble = this.mat('marble');
     const add = (m, x, y, z) => { m.position.set(x, y, z); g.add(m); return m; };
     add(new THREE.Mesh(cylinderUV(new THREE.CylinderGeometry(6.4, 6.6, 0.4, 16), 6.4, 0.4, 3), marble), 0, 0.2, 0);
     add(new THREE.Mesh(cylinderUV(new THREE.CylinderGeometry(5.6, 5.6, 0.5, 16), 5.6, 0.5, 3), marble), 0, 0.65, 0);
@@ -318,12 +330,12 @@ export class Overland {
       const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
       add(new THREE.Mesh(cylinderUV(new THREE.CylinderGeometry(0.38, 0.45, 5, 8), 0.4, 5, 2), marble), Math.sin(a) * 4.6, 3.4, Math.cos(a) * 4.6);
     }
-    add(new THREE.Mesh(cylinderUV(new THREE.CylinderGeometry(5.1, 5.1, 0.9, 16, 1, true), 5.1, 0.9, 3), lambert(tex('marble'), { side: THREE.DoubleSide })), 0, 6.3, 0);
-    const dome = new THREE.Mesh(new THREE.SphereGeometry(5.1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2), lambert(tex('marble')));
+    add(new THREE.Mesh(cylinderUV(new THREE.CylinderGeometry(5.1, 5.1, 0.9, 16, 1, true), 5.1, 0.9, 3), this.mat('marble', { side: THREE.DoubleSide })), 0, 6.3, 0);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(5.1, 16, 6, 0, Math.PI * 2, 0, Math.PI / 2), this.mat('marble'));
     dome.scale.y = 0.7;
     add(dome, 0, 6.7, 0);
-    add(new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.4, 6), lambert(tex('gold'))), 0, 10.9, 0);
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.4, 1.1, 8), lambert(tex('stonewall'))), 0, 1.45, 0);
+    add(new THREE.Mesh(new THREE.ConeGeometry(0.4, 1.4, 6), this.mat('gold')), 0, 10.9, 0);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.4, 1.1, 8), this.mat('stonewall')), 0, 1.45, 0);
     this.prop('campfire', 0, 0, { parent: g, y: 2.0, height: 0.9 });
     const light = new THREE.PointLight('#ffaa55', 6, 14, 1.4);
     light.position.set(0, 3, 0);
@@ -335,10 +347,10 @@ export class Overland {
     const mg = new THREE.SphereGeometry(8.5, 18, 8, 0, Math.PI * 2, 0, Math.PI / 2);
     const uv = mg.getAttribute('uv');
     for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * 9, uv.getY(i) * 3);
-    const mound = new THREE.Mesh(mg, lambert(tex('grassmound')));
+    const mound = new THREE.Mesh(mg, this.mat('grassmound'));
     mound.scale.y = 0.48;
     g.add(mound);
-    const stone = lambert(tex('barrowwall'), { color: '#cfcfcf' });
+    const stone = this.mat('barrowwall', { color: '#cfcfcf' });
     const add = (m, x, y, z) => { m.position.set(x, y, z); g.add(m); return m; };
     add(box(1.1, 3.6, 1.1, stone, 2), -1.7, 1.8, 7.6);
     add(box(1.1, 3.6, 1.1, stone, 2), 1.7, 1.8, 7.6);
@@ -359,7 +371,7 @@ export class Overland {
 
   buildSpire() {
     const g = new THREE.Group();
-    const obs = lambert(tex('obsidian'), { color: '#c8c0d8' });
+    const obs = this.mat('obsidian', { color: '#c8c0d8' });
     const plinth = new THREE.Mesh(cylinderUV(new THREE.CylinderGeometry(SPIRE_R + 3, SPIRE_R + 4, 4, 8), SPIRE_R + 3, 4), obs);
     plinth.position.y = 2;
     g.add(plinth);
@@ -376,10 +388,9 @@ export class Overland {
       g.add(b);
     }
     // Glowing rune band and window slits.
-    const rb = cachedTexture('tex:runeband', () => makeTexture('runeband'), { repeat: true, mips: false });
     const band = new THREE.Mesh(
       cylinderUV(new THREE.CylinderGeometry(10.4, 10.7, 3.2, 8, 1, true), 10.5, 3.2, 3.2),
-      new THREE.MeshBasicMaterial({ map: rb, side: THREE.DoubleSide, fog: false }),
+      this.glowMat('runeband'),
     );
     band.position.y = 4 + SPIRE_H * 0.62;
     g.add(band);
@@ -419,8 +430,7 @@ export class Overland {
     g.add(this.crownLight);
     // A gate that turns to face whoever arrives.
     const gate = new THREE.Group();
-    const doorTex = tex('door', false);
-    const gd = new THREE.Mesh(new THREE.PlaneGeometry(6, 9), lambert(doorTex, { color: '#8888aa' }));
+    const gd = new THREE.Mesh(new THREE.PlaneGeometry(6, 9), this.mat('door', { color: '#8888aa' }));
     gd.position.set(0, 8.5, SPIRE_R + 3.05);
     gate.add(gd);
     const steps = box(9, 4, 4, obs, 2);

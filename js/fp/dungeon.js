@@ -15,6 +15,9 @@ import { makeTexture } from './textures.js';
 import { PROPS_ART } from './sprites-props.js';
 import { FOES_ART } from './sprites-foes.js';
 import { cachedTexture, makeSprite } from './gfx.js';
+// The modern-look kit is injected by the view once it has been loaded.
+let HD = null;
+export function setDungeonKit(kit) { HD = kit; }
 
 export const CELL = 4;
 export const DIRS = [[0, -1], [1, 0], [0, 1], [-1, 0]]; // N E S W as [dx, dy]
@@ -120,7 +123,11 @@ export function barrowMap(seed) {
 }
 
 export class Level {
-  constructor(map, { kind, floor = 0 }) {
+  constructor(map, { kind, floor = 0, hd = false }) {
+    this.hd = hd;
+    this.billboards = [];
+    this.props = [];
+    this.torches = [];
     this.map = map;
     this.kind = kind; // 'barrow' | 'spire'
     this.floor = floor;
@@ -193,7 +200,10 @@ export class Level {
       g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
       g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       g.setIndex(idx);
-      const m = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ map: tex(texName), color }));
+      const m = new THREE.Mesh(g, this.hd
+        ? HD.hdMaterial(texName, { color, emissiveColor: this.kind === 'spire' ? '#c49bff' : undefined, emissiveIntensity: 1.6 })
+        : new THREE.MeshLambertMaterial({ map: tex(texName), color }));
+      m.receiveShadow = true;
       this.group.add(m);
     };
     mk(buckets.wall, wallTex, '#ffffff');
@@ -202,7 +212,38 @@ export class Level {
     this.decorate();
   }
 
-  sprite(name, x, y, { height, dx = 0, dz = 0, lift = 0, art } = {}) {
+  // A modern-look 3D prop or painted billboard at a cell.
+  hdThing(name, x, y, { height, dx = 0, dz = 0, lift = 0, yaw = 0 } = {}) {
+    let obj = null;
+    if (name === 'sentinel') {
+      obj = HD.makeBillboard('sentinel', { height });
+      if (obj) { obj.material = obj.material.clone(); obj.material.color.set('#8a8a96'); this.billboards.push(obj); this.statues.push(obj); }
+    } else if (name.startsWith('shard')) {
+      obj = HD.makeShard(name.slice(5));
+    } else if (name === 'rock') {
+      obj = new THREE.Group();
+      for (const part of HD.makeVegetation('rock')) obj.add(new THREE.Mesh(part.geometry, part.material));
+    } else {
+      obj = HD.makeProp(name);
+    }
+    if (!obj) return null;
+    const w = this.world(x, y);
+    obj.position.set(w.x + dx, lift, w.z + dz);
+    obj.rotation.y = yaw;
+    this.group.add(obj);
+    if (obj.userData?.update) this.props.push(obj);
+    return obj;
+  }
+
+  sprite(name, x, y, opts = {}) {
+    if (this.hd) {
+      const map = { shardsun: 'shardsun', shardmoon: 'shardmoon', shardstar: 'shardstar' };
+      const hdName = map[name] || name;
+      const o = this.hdThing(hdName, x, y, { ...opts, lift: name === 'torch' ? (opts.lift ?? 0) + 0.3 : opts.lift });
+      if (o && name === 'torch') this.torches.push(o);
+      return o;
+    }
+    const { height, dx = 0, dz = 0, lift = 0, art } = opts;
     const def = (art || PROPS_ART)[name];
     if (!def) return null;
     const s = makeSprite(def, name, { height });
@@ -215,7 +256,9 @@ export class Level {
   }
 
   decorate() {
-    const stone = new THREE.MeshLambertMaterial({ map: cachedTexture('tex:stonewall', () => makeTexture('stonewall'), { repeat: true, mips: true }) });
+    const stone = this.hd
+      ? HD.hdMaterial(this.kind === 'spire' ? 'spirefloor' : 'stonewall')
+      : new THREE.MeshLambertMaterial({ map: cachedTexture('tex:stonewall', () => makeTexture('stonewall'), { repeat: true, mips: true }) });
     const socketOrder = ['sun', 'moon', 'star'];
     let socketI = 0;
     for (let y = 0; y < this.h; y++) {
@@ -225,7 +268,7 @@ export class Level {
           for (let d = 0; d < 4; d++) {
             const [dx, dy] = DIRS[d];
             if (this.at(x + dx, y + dy) !== '#') continue;
-            this.sprite('torch', x, y, { dx: dx * (CELL / 2 - 0.12), dz: dy * (CELL / 2 - 0.12), lift: 1.6 });
+            this.sprite('torch', x, y, { dx: dx * (CELL / 2 - 0.12), dz: dy * (CELL / 2 - 0.12), lift: 1.6, yaw: Math.atan2(-dx, -dy) });
           }
         } else if (ch === 'b') {
           this.sprite('bones', x, y, { dx: (x % 2 ? 0.6 : -0.6) });
@@ -236,7 +279,7 @@ export class Level {
           this.sprite('chest', x, y);
         } else if (ch === 'Z') {
           const s = this.sprite('sentinel', x, y, { art: FOES_ART, height: 3.4 });
-          if (s) { s.material.color.set('#777788'); this.statues.push(s); }
+          if (s && !this.hd) { s.material.color.set('#777788'); this.statues.push(s); }
         } else if (ch === 'o') {
           const ped = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 1.2, 8), stone);
           const w = this.world(x, y);
@@ -244,6 +287,7 @@ export class Level {
           this.group.add(ped);
           const shard = socketOrder[socketI++ % 3];
           const s = this.sprite({ sun: 'shardsun', moon: 'shardmoon', star: 'shardstar' }[shard], x, y, { lift: 1.2, height: 0.9 });
+          if (s && this.hd) s.userData.baseScale = s.scale.clone();
           this.sockets[shard] = s;
         } else if (ch === 'U' || ch === 'v') {
           this.stairs(x, y, ch === 'U', stone);
@@ -295,6 +339,17 @@ export class Level {
   }
 
   update(t, camPos) {
+    if (this.hd) {
+      for (const p of this.props) p.userData.update?.(t);
+      // Only the torches nearest the player keep their lights on, so the
+      // shader's light count stays small.
+      if (!this._lightTick || t - this._lightTick > 0.25) {
+        this._lightTick = t;
+        const ranked = this.torches.map((o) => [o, o.getWorldPosition(new THREE.Vector3()).distanceTo(camPos)]).sort((a, b) => a[1] - b[1]);
+        ranked.forEach(([o], i) => { const l = o.userData.light; if (l) l.intensity = i < 4 ? (l.userData.base ?? (l.userData.base = l.intensity)) : 0; });
+      }
+      return;
+    }
     const flick = Math.floor(t * 7) % 2;
     for (const s of this.animated) {
       const f = s.userData.frames;

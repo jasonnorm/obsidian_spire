@@ -32,7 +32,7 @@ let gen = 0;
 let moveState = null;
 let memorySave = null;
 let webglOK = true;
-const prefs = { muted: false, speed: 1, view: 'board', ...(store.get(PREFS_KEY) || {}) };
+const prefs = { muted: false, speed: 1, view: 'board', fpStyle: 'hd', ...(store.get(PREFS_KEY) || {}) };
 const SPEEDS = [
   { v: 1, label: 'Normal' },
   { v: 0.55, label: 'Brisk' },
@@ -423,11 +423,12 @@ function setView(mode, { remember = true } = {}) {
   const fp = mode === 'fp';
   document.body.classList.toggle('fp-mode', fp);
   $('#board').hidden = fp;
-  $('#fp').hidden = !fp;
   $('#fp-hud').hidden = !fp;
   $('#node-tip').hidden = true;
   board?.setPaused(fp);
   fpv?.setActive(fp);
+  if (fp && fpv && fpv.style !== prefs.fpStyle) fpv.setStyle(prefs.fpStyle).then(updateLookButton);
+  updateLookButton();
   const b = $('#btn-view-mode');
   b.textContent = fp ? 'Board view' : "Warden's eye";
   b.setAttribute('aria-pressed', String(fp));
@@ -436,6 +437,26 @@ function setView(mode, { remember = true } = {}) {
     fpv.sync(game);
     fpv.ensurePose(game.s.players[0]);
   }
+}
+
+function updateLookButton() {
+  const b = $('#btn-fp-style');
+  if (!b || !fpv) return;
+  b.textContent = fpv.style === 'hd' ? 'Look: Modern' : 'Look: Retro EGA';
+  b.setAttribute('aria-pressed', String(fpv.style === 'hd'));
+}
+
+async function toggleLook() {
+  if (!fpv) return;
+  if (fpv.mode === 'dungeon') {
+    con.render({ glyph: 'barrow', text: 'Climb out first: the look can change only out in the open.', mood: 'warn' });
+    return;
+  }
+  audio.play('key');
+  const next = fpv.style === 'hd' ? 'ega' : 'hd';
+  const ok = await fpv.setStyle(next);
+  if (ok) { prefs.fpStyle = next; store.set(PREFS_KEY, prefs); }
+  updateLookButton();
 }
 
 function toggleView() {
@@ -521,6 +542,7 @@ async function boot(hotData) {
     if (con.handleKey(e)) e.preventDefault();
   });
   $('#btn-view-mode').addEventListener('click', () => toggleView());
+  $('#btn-fp-style').addEventListener('click', () => toggleLook());
   $('#btn-sound').addEventListener('click', () => { audio.unlock(); prefs.muted = !prefs.muted; store.set(PREFS_KEY, prefs); applyPrefs(); });
   $('#btn-speed').addEventListener('click', () => {
     const i = SPEEDS.findIndex((s) => s.v === prefs.speed);

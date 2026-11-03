@@ -5,8 +5,11 @@
 import * as THREE from 'three';
 import { NODE_BY_ID, PROVINCES, SHARDS } from '../data.js';
 import { EgaPipeline, makeSprite, setFrame } from './gfx.js';
+
+// The modern look's code and assets, loaded the first time it is chosen.
+let HD = null;
 import { Overland, wpos, yawTo, EYE } from './world.js';
-import { Level, barrowMap, SPIRE_MAPS, CELL, DIRS, drawAutomap } from './dungeon.js';
+import { Level, barrowMap, SPIRE_MAPS, CELL, DIRS, drawAutomap, setDungeonKit } from './dungeon.js';
 import { FOES_ART } from './sprites-foes.js';
 import { BEASTS_ART } from './sprites-beasts.js';
 import { PEOPLE_ART } from './sprites-people.js';
@@ -49,10 +52,16 @@ export class FirstPersonView {
     this.canvas = canvas;
     this.hud = hud;
     this.say = say;
-    this.pipe = new EgaPipeline(canvas);
+    // Two looks: 'ega' (16-colour pixel art) and 'hd' (modern). Each has its
+    // own canvas, renderer and world, built on first use.
+    this.style = 'ega';
+    this.canvases = { ega: canvas, hd: null };
+    this.pipes = { ega: new EgaPipeline(canvas) };
+    this.pipe = this.pipes.ega;
     this.camera = new THREE.PerspectiveCamera(62, 1, 0.1, 900);
     this.camera.rotation.order = 'YXZ';
-    this.overland = new Overland();
+    this.worlds = { ega: new Overland() };
+    this.overland = this.worlds.ega;
     this.scene = this.overland.scene;
     this.mode = 'overland';
     this.pos = new THREE.Vector3(0, EYE, 30);
@@ -96,7 +105,8 @@ export class FirstPersonView {
         <button type="button" class="fp-btn fp-leave" data-act="leave">Leave</button>
       </div>
       <canvas class="fp-hand" id="fp-hand" aria-hidden="true" hidden></canvas>
-      <div class="fp-fade" id="fp-fade"></div>`;
+      <div class="fp-fade" id="fp-fade"></div>
+      <div class="fp-loading" id="fp-loading" hidden><span>Painting the Reach&hellip;</span></div>`;
     this.el = {
       place: h.querySelector('#fp-place'),
       region: h.querySelector('#fp-region'),
@@ -107,6 +117,7 @@ export class FirstPersonView {
       pad: h.querySelector('#fp-pad'),
       hand: h.querySelector('#fp-hand'),
       fade: h.querySelector('#fp-fade'),
+      loading: h.querySelector('#fp-loading'),
     };
     h.addEventListener('click', (e) => {
       const b = e.target.closest('[data-act]');
@@ -127,11 +138,61 @@ export class FirstPersonView {
   }
 
   setHand(frame) {
-    const c = this.handFrames?.[frame];
+    const c = this.style === 'hd' ? HD.artCanvas('hand', frame) : this.handFrames?.[frame];
     if (!c) return;
-    const g = this.el.hand.getContext('2d');
+    const el = this.el.hand;
+    if (el.width !== c.width) { el.width = c.width; el.height = c.height; }
+    const g = el.getContext('2d');
     g.clearRect(0, 0, c.width, c.height);
     g.drawImage(c, 0, 0);
+  }
+
+  // Switch between the modern and the retro look. Returns false when it
+  // cannot switch right now (inside a dungeon).
+  async setStyle(style) {
+    if (style === this.style) return true;
+    if (this.mode === 'dungeon') return false;
+    if (style === 'hd') {
+      this.el.loading.hidden = false;
+      await new Promise((r) => setTimeout(r, 40));
+      try {
+        HD = HD || await import('./hd/kit.js');
+        setDungeonKit(HD);
+        await HD.loadArt();
+        if (!this.worlds.hd) this.worlds.hd = new HD.OverlandHD();
+        if (!this.pipes.hd) {
+          const c = document.createElement('canvas');
+          c.className = 'fp-canvas fp-canvas-hd';
+          c.setAttribute('aria-label', this.canvas.getAttribute('aria-label') || '');
+          c.hidden = true;
+          this.canvas.parentElement.insertBefore(c, this.canvas.nextSibling);
+          this.canvases.hd = c;
+          this.pipes.hd = new HD.HdPipeline(c);
+        }
+      } catch (err) {
+        console.error(err);
+        this.el.loading.hidden = true;
+        return false;
+      }
+      this.el.loading.hidden = true;
+    }
+    this.clearStage();
+    this.style = style;
+    this.pipe = this.pipes[style];
+    this.overland = this.worlds[style];
+    this.scene = this.overland.scene;
+    this.camera.far = style === 'hd' ? 6000 : 900;
+    this.camera.updateProjectionMatrix();
+    this.hud.classList.toggle('fp-hd', style === 'hd');
+    this.showCanvases();
+    if (this.lastGame) this.sync(this.lastGame);
+    this.setHand('idle');
+    this.resize();
+    return true;
+  }
+
+  showCanvases() {
+    for (const [k, c] of Object.entries(this.canvases)) if (c) c.hidden = !this.active || k !== this.style;
   }
 
   showHand(on) { this.el.hand.hidden = !on; }
@@ -146,6 +207,12 @@ export class FirstPersonView {
     const w = p.clientWidth;
     const h = p.clientHeight;
     if (!w || !h) return;
+    if (this.style === 'hd') {
+      this.pipe.setSize(w, h);
+      this.camera.aspect = w / h;
+      this.camera.updateProjectionMatrix();
+      return;
+    }
     const ih = INTERNAL_H;
     const iw = Math.max(160, Math.round((ih * w) / h));
     this.pipe.setSize(iw, ih);
@@ -157,6 +224,7 @@ export class FirstPersonView {
   // ---------------------------------------------------------------- loop
   setActive(on) {
     this.active = on;
+    this.showCanvases();
     if (on) {
       this.resize();
       if (!this.raf) {
@@ -197,14 +265,23 @@ export class FirstPersonView {
       this.pipe.setFlash(this.flash, this.flashColor);
       this.flash = Math.max(0, this.flash - 0.04);
     } else this.pipe.setFlash(0);
-    if (this.mode === 'overland') this.overland.update(t);
-    else {
+    const hd = this.style === 'hd';
+    if (this.mode === 'overland') {
+      this.overland.update(t, cam);
+      if (hd) this.overland.updateEnvironment(this.pipe.renderer);
+    } else {
       this.level?.update(t, cam.position);
       if (this.torch) {
         this.torch.position.copy(cam.position);
-        this.torch.intensity = 8 + Math.sin(t * 13) * 0.6 + Math.sin(t * 7.3) * 0.5;
+        const base = hd ? 26 : 8;
+        this.torch.intensity = base * (1 + Math.sin(t * 13) * 0.07 + Math.sin(t * 7.3) * 0.06);
       }
       if (this.crystal) this.crystal.rotation.y = t * 0.6;
+      if (hd) HD.faceBillboards(this.level?.billboards || [], cam);
+    }
+    if (hd) {
+      HD.faceBillboards(this.actors, cam);
+      if (this.lurker) HD.faceBillboards([this.lurker], cam);
     }
     for (const a of this.actors) {
       if (a.userData.float) a.position.y = a.userData.float + Math.sin(t * 2.2 + a.id) * 0.15;
@@ -215,12 +292,16 @@ export class FirstPersonView {
 
   drawCompass() {
     const c = this.el.compass;
+    const hd = this.style === 'hd';
+    const want = hd ? [352, 44] : [176, 22];
+    if (c.width !== want[0]) { c.width = want[0]; c.height = want[1]; }
+    const u = c.height / 22; // one EGA pixel
     const g = c.getContext('2d');
-    g.fillStyle = '#000000';
-    g.fillRect(0, 0, c.width, c.height);
+    g.clearRect(0, 0, c.width, c.height);
+    if (!hd) { g.fillStyle = '#000000'; g.fillRect(0, 0, c.width, c.height); }
     const heading = (-this.yaw * 180) / Math.PI;
     const ppd = c.width / 120; // pixels per degree, 120 degree window
-    g.font = '8px "Press Start 2P", monospace';
+    g.font = hd ? `600 ${Math.round(15 * u / 2)}px "Cinzel", Georgia, serif` : '8px "Press Start 2P", monospace';
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     for (let d = -180; d <= 540; d += 15) {
@@ -228,28 +309,29 @@ export class FirstPersonView {
       if (Math.abs(rel) > 60) continue;
       const x = Math.round(c.width / 2 + rel * ppd);
       const card = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[((d % 360) + 360) % 360];
+      const fade = hd ? Math.max(0.15, 1 - Math.abs(rel) / 60) : 1;
+      g.globalAlpha = fade;
       if (card) {
-        g.fillStyle = card === 'N' ? '#ff5555' : '#ffffff';
-        g.fillText(card, x, 12);
+        g.fillStyle = card === 'N' ? (hd ? '#ff8a7a' : '#ff5555') : (hd ? '#f3e6c8' : '#ffffff');
+        g.fillText(card, x, 12 * u);
       } else {
-        g.fillStyle = '#aaaaaa';
-        g.fillRect(x, 16, 1, 4);
+        g.fillStyle = hd ? '#c9b48a' : '#aaaaaa';
+        g.fillRect(x, 16 * u, Math.max(1, u), 4 * u);
       }
     }
+    g.globalAlpha = 1;
     if (this.mode === 'overland') {
-      const sp = (Math.atan2(-this.pos.x, this.pos.z * -1) * 180) / Math.PI;
-      const bearing = (Math.atan2(0 - this.pos.x, -(0 - this.pos.z)) * 180) / Math.PI;
+      const bearing = (Math.atan2(-this.pos.x, this.pos.z) * 180) / Math.PI;
       const rel = ((bearing - heading + 540) % 360) - 180;
-      void sp;
       if (Math.abs(rel) <= 60) {
         const x = Math.round(c.width / 2 + rel * ppd);
-        g.fillStyle = '#aa55ff';
-        g.fillRect(x - 2, 2, 5, 3);
-        g.fillRect(x - 1, 5, 3, 2);
+        g.fillStyle = hd ? '#c49bff' : '#aa55ff';
+        g.fillRect(x - 2 * u, 2 * u, 5 * u, 3 * u);
+        g.fillRect(x - u, 5 * u, 3 * u, 2 * u);
       }
     }
-    g.fillStyle = '#ffff55';
-    g.fillRect(c.width / 2, 0, 1, 4);
+    g.fillStyle = hd ? '#e3c47c' : '#ffff55';
+    g.fillRect(c.width / 2, 0, Math.max(1, u), 4 * u);
   }
 
   // Back to a clean overland state, standing at the human's node (or nowhere).
@@ -436,6 +518,7 @@ export class FirstPersonView {
   }
 
   sync(game) {
+    this.lastGame = game;
     const s = game.s;
     const me = s.players[0];
     const rival = s.players[1];
@@ -510,7 +593,12 @@ export class FirstPersonView {
     const width = ((height ?? def.height) * def.w) / def.h;
     const spacing = Math.min(width * 1.05, this.mode === 'dungeon' ? 3.4 / Math.max(1, n - 1 || 1) + 0.4 : 9);
     for (let i = 0; i < n; i++) {
-      const s = makeSprite(def, art, { height });
+      let s;
+      if (this.style === 'hd') {
+        s = set === PROPS_ART ? HD.makeProp(art) : HD.makeBillboard(art, { height: height ?? def.height });
+        if (!s) continue;
+        s.userData.baseScale = s.scale.clone();
+      } else s = makeSprite(def, art, { height });
       const off = (i - (n - 1) / 2) * spacing;
       const depth = d + (n > 1 && i % 2 === 1 ? 0.8 : 0);
       s.position.set(this.pos.x + fwd.x * depth + right.x * off, lift, this.pos.z + fwd.z * depth + right.z * off);
@@ -520,10 +608,10 @@ export class FirstPersonView {
       this.actors.push(s);
       // Rise into view.
       const base = s.userData.baseScale.clone();
-      s.scale.set(base.x, 0.01, 1);
-      this.anim(260, (k) => s.scale.set(base.x, base.y * ease(k), 1));
+      s.scale.set(base.x, 0.01, base.z);
+      this.anim(260, (k) => s.scale.set(base.x, Math.max(0.01, base.y * ease(k)), base.z));
     }
-    if (this.mode === 'dungeon') for (const s of this.actors) this.level.sprites.push(s);
+    if (this.mode === 'dungeon' && this.style !== 'hd') for (const s of this.actors) this.level.sprites.push(s);
   }
 
   hitActor() {
@@ -619,7 +707,8 @@ export class FirstPersonView {
   raiseShard(shard) {
     const def = PROPS_ART[SHARD_PROP[shard]];
     if (!def) return;
-    const s = makeSprite(def, SHARD_PROP[shard], { height: 1 });
+    const s = this.style === 'hd' ? HD.makeShard(shard) : makeSprite(def, SHARD_PROP[shard], { height: 1 });
+    if (!s.userData.baseScale) s.userData.baseScale = s.scale.clone();
     s.userData.selfLit = true;
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const from = this.pos.clone().addScaledVector(fwd, 3);
@@ -667,10 +756,10 @@ export class FirstPersonView {
       const n = NODE_BY_ID[this.exploreNode];
       let h = (this.seed || 7) >>> 0;
       for (const ch of n.id) h = Math.imul(h ^ ch.charCodeAt(0), 2654435761) >>> 0;
-      return new Level(barrowMap(h % 997), { kind: 'barrow' });
+      return new Level(barrowMap(h % 997), { kind: 'barrow', hd: this.style === 'hd' });
     }
     this.spireLevels = this.spireLevels || [];
-    if (!this.spireLevels[floor]) this.spireLevels[floor] = new Level(SPIRE_MAPS[floor], { kind: 'spire', floor });
+    if (!this.spireLevels[floor]) this.spireLevels[floor] = new Level(SPIRE_MAPS[floor], { kind: 'spire', floor, hd: this.style === 'hd' });
     return this.spireLevels[floor];
   }
 
@@ -695,9 +784,10 @@ export class FirstPersonView {
     this.floor = floor;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#000000');
-    scene.fog = new THREE.Fog('#000000', 3, this.site === 'spire' ? 26 : 18);
-    scene.add(new THREE.HemisphereLight(this.site === 'spire' ? '#aa88ff' : '#ffddaa', '#000000', this.site === 'spire' ? 0.3 : 0.2));
-    this.torch = new THREE.PointLight('#ffaa55', 8, 17, 1.3);
+    const hd = this.style === 'hd';
+    scene.fog = hd ? new THREE.FogExp2('#05030a', this.site === 'spire' ? 0.035 : 0.06) : new THREE.Fog('#000000', 3, this.site === 'spire' ? 26 : 18);
+    scene.add(new THREE.HemisphereLight(this.site === 'spire' ? '#aa88ff' : '#ffddaa', '#000000', this.site === 'spire' ? (hd ? 0.35 : 0.3) : (hd ? 0.12 : 0.2)));
+    this.torch = hd ? new THREE.PointLight('#ffb070', 26, 22, 1.6) : new THREE.PointLight('#ffaa55', 8, 17, 1.3);
     scene.add(this.torch);
     scene.add(lvl.group);
     this.crystal = null;
@@ -714,7 +804,7 @@ export class FirstPersonView {
       // The Crown Dragon waits coiled behind the crown until you step up to it.
       this.lurker = null;
       if ((this.exploreOpts?.tier ?? 0) === 2 && FOES_ART.dragon) {
-        const d = makeSprite(FOES_ART.dragon, 'dragon');
+        const d = this.style === 'hd' ? HD.makeBillboard('dragon', { height: 5 }) : makeSprite(FOES_ART.dragon, 'dragon');
         d.position.set(w.x, 0, w.z - CELL * 0.75);
         d.userData.selfLit = true;
         scene.add(d);

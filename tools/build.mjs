@@ -9,10 +9,9 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const vendor = {
-  three: path.join(root, 'vendor/three.module.min.js'),
-  'three/addons/controls/OrbitControls.js': path.join(root, 'vendor/OrbitControls.js'),
-};
+const vendorPath = (spec) => (spec === 'three'
+  ? path.join(root, 'vendor/three.module.min.js')
+  : path.join(root, 'vendor/addons', spec.slice('three/addons/'.length)));
 
 const result = await build({
   entryPoints: [path.join(root, 'js/main.js')],
@@ -25,7 +24,7 @@ const result = await build({
   plugins: [{
     name: 'vendor-three',
     setup(b) {
-      b.onResolve({ filter: /^three(\/.*)?$/ }, (args) => ({ path: vendor[args.path] }));
+      b.onResolve({ filter: /^three(\/.*)?$/ }, (args) => ({ path: vendorPath(args.path) }));
     },
   }],
 });

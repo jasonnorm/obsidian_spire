@@ -1009,6 +1009,55 @@ body.fp-mode .board-wrap { border-color: #555555; box-shadow: 0 0 0 2px #000, in
   .fp-pad .fp-btn { min-height: 36px; }
 }
 
+/* ---------------------------------------------------------------- Warden's eye, modern look */
+.fp-canvas-hd { image-rendering: auto; }
+.tb-look { display: none; }
+body.fp-mode .tb-look { display: inline-block; }
+.fp-loading {
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(ellipse at center, rgba(20, 14, 24, 0.75), rgba(8, 6, 10, 0.95));
+  font-family: var(--f-head);
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-hi);
+  pointer-events: auto;
+}
+.fp-loading span { animation: breathe 2s ease-in-out infinite; }
+.fp-hud.fp-hd { font-family: var(--f-head); }
+.fp-hd .fp-banner, .fp-hd .fp-road-label, .fp-hd .fp-compass, .fp-hd .fp-automap {
+  background: linear-gradient(180deg, rgba(24, 18, 26, 0.78), rgba(12, 9, 14, 0.82));
+  border: 1px solid rgba(227, 196, 124, 0.55);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+.fp-hd .fp-banner { padding: 8px 18px 7px; gap: 3px; }
+.fp-hd .fp-banner b { font-family: var(--f-display); font-weight: 700; font-size: 1.05rem; letter-spacing: 0.04em; color: var(--brass-hi); }
+.fp-hd .fp-banner small { font-family: var(--f-body); font-size: 0.78rem; letter-spacing: 0.08em; color: #cdbfe6; }
+.fp-hd .fp-compass { width: 220px; height: 28px; image-rendering: auto; }
+.fp-hd .fp-automap { top: 52px; image-rendering: pixelated; }
+.fp-hd .fp-road-label { padding: 8px 14px; gap: 3px; }
+.fp-hd .fp-road-label b { font-family: var(--f-head); font-weight: 700; font-size: 0.95rem; color: var(--brass-hi); }
+.fp-hd .fp-road-label small { font-family: var(--f-body); font-size: 0.78rem; color: #d8cfbf; }
+.fp-hd .fp-btn {
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: var(--brass-hi);
+  background: linear-gradient(180deg, rgba(58, 48, 66, 0.92), rgba(28, 22, 32, 0.92));
+  border: 1px solid rgba(227, 196, 124, 0.5);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+.fp-hd .fp-btn:hover { background: linear-gradient(180deg, rgba(84, 66, 92, 0.95), rgba(40, 30, 46, 0.95)); }
+.fp-hd .fp-btn:active { transform: translateY(1px); border-color: rgba(227, 196, 124, 0.8); }
+.fp-hd .fp-ride { background: linear-gradient(180deg, #e3c47c, #a67c34); color: #1b1208; }
+.fp-hd .fp-pad .fp-leave { background: linear-gradient(180deg, rgba(120, 30, 30, 0.95), rgba(70, 14, 14, 0.95)); color: #ffd9c9; }
+.fp-hd .fp-hand { width: min(52vh, 560px); height: min(52vh, 560px); image-rendering: auto; }
+
 /* Narrow cards: each label takes its own line above its two peg rows. */
 @container (max-width: 470px) {
   .lg-row { grid-template-columns: auto auto minmax(1.8em, 1fr); column-gap: 8px; }

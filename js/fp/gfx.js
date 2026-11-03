@@ -44,6 +44,7 @@ export function makeSprite(def, name, { height, frame = 'idle' } = {}) {
 }
 
 export function setFrame(sprite, frame) {
+  if (sprite.userData.setFrame) { sprite.userData.setFrame(frame); return; }
   const f = sprite.userData.frames;
   sprite.material.map = f[frame] || f.idle;
   sprite.material.needsUpdate = true;

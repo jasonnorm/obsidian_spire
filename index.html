@@ -11,7 +11,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@500;600;700;900&family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Press+Start+2P&family=VT323&display=swap">
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
-{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js" } }
+{ "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/addons/" } }
 </script>
 </head>
 <body class="in-menu">
@@ -27,6 +27,7 @@
       <button type="button" class="tb-btn" id="btn-sound" aria-pressed="true">Sound on</button>
       <button type="button" class="tb-btn" id="btn-speed">Pace: Normal</button>
       <button type="button" class="tb-btn tb-eye" id="btn-view-mode" aria-pressed="false" title="Switch between the board and your Warden's eyes (V)">Warden's eye</button>
+      <button type="button" class="tb-btn tb-look" id="btn-fp-style" aria-pressed="true" title="Switch the first-person view between the modern look and 1980s EGA pixels">Look: Modern</button>
       <button type="button" class="tb-btn" id="btn-view">Recentre</button>
       <button type="button" class="tb-btn" id="btn-rules">Rules</button>
       <div class="menu-wrap">
@@ -168,7 +169,7 @@
     <p>The Spire pulses every second round and the Gloom track rises. At 4 wraiths walk, at 7 prices rise, at 8 the barrow passages are haunted, at 10 Gloom Hounds hunt, at 14 prices soar. When the peg reaches the last hole, the Spire wakes and the chapter is lost.</p>
 
     <h3>Warden's eye</h3>
-    <p>Press <kbd>V</kbd> or the Warden's eye button to leave the board and see the Reach through your own eyes, drawn in sixteen colours the way a 1985 EGA screen would have. Overland, <kbd>&larr;</kbd> and <kbd>&rarr;</kbd> (or A and D) turn you toward each road and <kbd>&uarr;</kbd> (or W) rides it. Inside a barrow or the Spire you walk a grid: <kbd>W</kbd> and <kbd>S</kbd> step, <kbd>A</kbd> and <kbd>D</kbd> turn, <kbd>Q</kbd> and <kbd>E</kbd> sidestep, and <kbd>Esc</kbd> climbs back out. Step into the antechamber to fight its wights, through the tomb gate to face the Barrow King, and up the Spire's stairs to the crown. The map in the corner fills in as your torch shows the way.</p>
+    <p>Press <kbd>V</kbd> or the Warden's eye button to leave the board and see the Reach through your own eyes. The Look button switches between the modern view (painted characters, real-time shadows, dusk sky) and a retro view drawn in sixteen colours the way a 1985 EGA screen would have. Overland, <kbd>&larr;</kbd> and <kbd>&rarr;</kbd> (or A and D) turn you toward each road and <kbd>&uarr;</kbd> (or W) rides it. Inside a barrow or the Spire you walk a grid: <kbd>W</kbd> and <kbd>S</kbd> step, <kbd>A</kbd> and <kbd>D</kbd> turn, <kbd>Q</kbd> and <kbd>E</kbd> sidestep, and <kbd>Esc</kbd> climbs back out. Step into the antechamber to fight its wights, through the tomb gate to face the Barrow King, and up the Spire's stairs to the crown. The map in the corner fills in as your torch shows the way.</p>
 
     <h3>The ledgers</h3>
     <p>Each Warden's scorecard keeps company, coin and provisions with a tens peg and a units peg, plus holes for relics, the ward and Spire progress, and sockets for shards. Press <kbd>Ledger</kbd> to have the Spire read yours aloud, <kbd>Repeat</kbd> to see the last message again, and click the picture window to hurry it along.</p>
