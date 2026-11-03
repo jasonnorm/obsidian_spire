@@ -369,8 +369,8 @@ vec3 splatNormal() { vec2 p = vWXZ; return ${sum('sNrm', '.xyz')}; }`)
     for (const pv of PROVINCES) {
       const a0 = pv.id * 60 - 29;
       const a1 = pv.id * 60 + 29;
-      place(pv.terrain, 170, true, ASH_R + 3, 165, a0, a1);
-      place(pv.terrain, 520, false, ASH_R + 2, 120, a0, a1);
+      place(pv.terrain, 130, true, ASH_R + 3, 165, a0, a1);
+      place(pv.terrain, 320, false, ASH_R + 2, 110, a0, a1);
     }
     place('ash', 45, true, SPIRE_R + 10, ASH_R, 0, 360);
     const dummy = new THREE.Object3D();

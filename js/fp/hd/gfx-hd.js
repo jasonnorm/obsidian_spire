@@ -200,6 +200,18 @@ export class HdPipeline {
     this.h = 0;
   }
 
+  // Step quality down on slow machines: 1 = lower resolution, 2 = no bloom,
+  // 3 = no shadows. Returns false when there is nothing left to drop.
+  degrade() {
+    this.level = (this.level || 0) + 1;
+    const r = this.renderer;
+    if (this.level === 1) { r.setPixelRatio(1); this.w = 0; }
+    else if (this.level === 2) this.bloom.enabled = false;
+    else if (this.level === 3) { r.shadowMap.enabled = false; r.shadowMap.needsUpdate = true; }
+    else return false;
+    return true;
+  }
+
   setSize(w, h) {
     if (w === this.w && h === this.h) return;
     this.w = w;

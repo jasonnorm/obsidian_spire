@@ -266,6 +266,16 @@ export class FirstPersonView {
       this.flash = Math.max(0, this.flash - 0.04);
     } else this.pipe.setFlash(0);
     const hd = this.style === 'hd';
+    // Watch the frame time in the modern look and shed detail if it lags.
+    if (hd) {
+      const dt = now - (this.lastNow || now);
+      this.frameAvg = this.frameAvg ? this.frameAvg * 0.95 + dt * 0.05 : dt;
+      this.frameCount = (this.frameCount || 0) + 1;
+      if (this.frameCount > 90 && this.frameAvg > 42 && document.visibilityState === 'visible') {
+        if (this.pipe.degrade?.()) { this.frameCount = 0; this.frameAvg = 0; this.resize(); }
+      }
+    }
+    this.lastNow = now;
     if (this.mode === 'overland') {
       this.overland.update(t, cam);
       if (hd) this.overland.updateEnvironment(this.pipe.renderer);

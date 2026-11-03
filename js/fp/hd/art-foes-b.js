@@ -282,8 +282,8 @@ class Art {
       `<feMorphology in="th" operator="dilate" radius="2.4" result="dl"/><feFlood flood-color="${OUT}"/><feComposite in2="dl" operator="in" result="ol"/>` +
       `<feOffset in="SourceAlpha" dx="-5" dy="3" result="rs"/><feComposite in="SourceAlpha" in2="rs" operator="out" result="ra"/><feGaussianBlur in="ra" stdDeviation="0.9" result="rb"/><feFlood flood-color="${RIM}" flood-opacity="0.75"/><feComposite in2="rb" operator="in"/><feComposite in2="SourceAlpha" operator="in" result="rim"/>` +
       `<feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="${s}" result="n"/>` +
-      `<feColorMatrix in="n" type="matrix" values="0 0 0 0 0.08 0 0 0 0 0.05 0 0 0 0 0.04 0.6 0 0 0 -0.23" result="gd"/>` +
-      `<feColorMatrix in="n" type="matrix" values="0 0 0 0 1 0 0 0 0 0.94 0 0 0 0 0.84 0 0.55 0 0 -0.23" result="gl"/>` +
+      `<feColorMatrix in="n" type="matrix" values="0 0 0 0 0.08 0 0 0 0 0.05 0 0 0 0 0.04 0.46 0 0 0 -0.18" result="gd"/>` +
+      `<feColorMatrix in="n" type="matrix" values="0 0 0 0 1 0 0 0 0 0.94 0 0 0 0 0.84 0 0.42 0 0 -0.18" result="gl"/>` +
       `<feMerge result="gm"><feMergeNode in="gd"/><feMergeNode in="gl"/></feMerge><feComposite in="gm" in2="SourceAlpha" operator="in" result="grain"/>` +
       `<feMerge><feMergeNode in="ol"/><feMergeNode in="SourceGraphic"/><feMergeNode in="rim"/><feMergeNode in="grain"/></feMerge></filter>`;
     const un = `<clipPath id="${uid}">${this.union.map((d) => `<path d="${d}"/>`).join('')}</clipPath>`;
@@ -329,7 +329,7 @@ function plateStrip(Lp, Rp, count, bow, gap = 0.12) {
 function flameFilter(art, scale = 34, f = '0.012 0.028', seed = 5) {
   return art.once(`ff${scale}${f}${seed}`, () => {
     const id = art.id('fl');
-    art.def(`<filter id="${id}" filterUnits="userSpaceOnUse" x="-100" y="-100" width="${art.W + 200}" height="${art.H + 200}" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="${f}" numOctaves="3" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="${scale}" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="1.2"/></filter>`);
+    art.def(`<filter id="${id}" filterUnits="userSpaceOnUse" x="-100" y="-100" width="${art.W + 200}" height="${art.H + 200}" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="${f}" numOctaves="3" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="${scale}" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="1.6"/></filter>`);
     return `url(#${id})`;
   });
 }
@@ -356,7 +356,7 @@ function sparks(art, R, n, box, dir, colors, len = [3, 14]) {
 function smokeFilter(art, seed = 9) {
   return art.once('smf' + seed, () => {
     const id = art.id('sm');
-    art.def(`<filter id="${id}" filterUnits="userSpaceOnUse" x="-100" y="-100" width="${art.W + 200}" height="${art.H + 200}" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="3" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="26" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="2.4"/></filter>`);
+    art.def(`<filter id="${id}" filterUnits="userSpaceOnUse" x="-100" y="-100" width="${art.W + 200}" height="${art.H + 200}" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="3" seed="${seed}" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="34" xChannelSelector="R" yChannelSelector="G" result="d"/><feGaussianBlur in="d" stdDeviation="3.2"/></filter>`);
     return `url(#${id})`;
   });
 }
@@ -418,6 +418,11 @@ function fireJet(art, o) {
     const c = ['#ff5a10', '#ff7a14', '#ffa424', '#ffc43a'][Math.floor(R() * 4)];
     f += `<path d="${tg.d}" fill="${c}" opacity="0.85"/>`;
   }
+  for (let i = 0; i < (q.billows ?? 7); i++) {
+    const t = 0.55 + R() * 0.45, hw = lerp(q.w0, q.w1, Math.pow(t, 0.8));
+    const c = at(t, (R() - 0.5) * hw * 1.7), rr = hw * lerp(0.22, 0.4, R());
+    f += `<circle cx="${r1(c[0])}" cy="${r1(c[1])}" r="${r1(rr)}" fill="${R() > 0.5 ? '#ff6a14' : '#f24a0e'}" opacity="0.9"/><circle cx="${r1(c[0] - rr * 0.2)}" cy="${r1(c[1] - rr * 0.25)}" r="${r1(rr * 0.6)}" fill="#ffa22a" opacity="0.8"/>`;
+  }
   f += `<path d="${cone(0.68, 0.95, 44, 3)}" fill="${g([[0, '#ffe070'], [0.4, '#ffaa22'], [1, '#ff6a10', 0.6]])}"/>`;
   f += `<path d="${cone(0.42, 0.85, 28, 4)}" fill="${g([[0, '#fffbe6'], [0.35, '#ffe468'], [1, '#ffb420', 0]])}"/>`;
   s += `<g filter="${flameFilter(art, q.disp, '0.011 0.026', q.seed + 3)}">${f}</g>`;
@@ -435,8 +440,8 @@ function figShade(art, op = 0.4, col = '#12040a', ground = 0.3) {
 // ================================================================== DRAGON
 // The Crown Dragon, final boss. 1024 x 768.
 const DR = {
-  sc: { hi: '#ff7a5c', mid: '#c01c28', lo: '#6c0a1a', deep: '#30040c' },
-  gold: { hi: '#ffeaa6', mid: '#dca03a', lo: '#9a5a18', deep: '#4a2008' },
+  sc: { hi: '#f87458', mid: '#b21a26', lo: '#5c0816', deep: '#2a030b' },
+  gold: { hi: '#ffe8a4', mid: '#d89c40', lo: '#94561a', deep: '#441c06' },
   bone: { hi: '#fffaf0', mid: '#e8dac2', lo: '#a48e72', deep: '#4c3c30' },
   strut: { hi: '#8c6a70', mid: '#3e2229', lo: '#24121a', deep: '#14090e' },
 };
@@ -569,29 +574,36 @@ function dragonFrame(frame) {
   function hindLeg(side) {
     const fx = (pts) => (side < 0 ? pts : flipX(pts, 512).reverse());
     const fp = (p) => (side < 0 ? p : [1024 - p[0], p[1]]);
-    // foot and talons
-    const foot = pathD(fx([[300, 730], [340, 716], [386, 722], [414, 744], [424, 768, 1], [290, 768, 1], [288, 748]]));
-    for (const [x, a] of [[300, -26], [338, -10], [376, 4], [412, 18]]) {
-      const b = fp([x, 742]);
-      const toe = tube([b, fp([x + a * 0.3, 752])], [[0, 13], [1, 10]], { n: 8 });
-      art.part(toe.d, scaleFill, { vol: smallVol });
-      const c = tube([fp([x + a * 0.3, 750]), fp([x + a * 0.6, 760]), fp([x + a * 0.9, 768])], [[0, 9], [1, 0.6]], { n: 14 });
-      art.part(c.d, clawFill, { vol: boneVol });
-    }
-    art.part(foot, art.matFill(S, 0.35, 0.2, 0.9), { vol: smallVol }, () => `<rect x="0" y="690" width="1024" height="80" fill="${scalesSm}"/>`);
     // shin
-    const shin = tube([fp([338, 654]), fp([328, 698]), fp([348, 738])], [[0, 30], [0.6, 21], [1, 24]], { n: 18 });
-    art.part(shin.d, scaleFill, { vol: { ...scaleVol, k: 10, sb: 6 } }, () => `<rect x="0" y="600" width="1024" height="168" fill="${scalesSm}"/>`);
+    const shin = tube([fp([336, 660]), fp([332, 700]), fp([356, 734])], [[0, 32], [0.55, 21], [1, 23]], { n: 18 });
+    art.part(shin.d, scaleFill, { vol: { ...scaleVol, k: 10, sb: 6 } }, () => `<rect x="0" y="600" width="1024" height="168" fill="${scalesSm}"/>` +
+      art.soft(pathD([fp([322, 668]), fp([320, 704]), fp([336, 730])], false), '#ff8a68', 8, 0.3, 4));
+    // spur at the back of the ankle
+    const sp0 = fp([334, 722]);
+    art.part(spikeTube(sp0[0], sp0[1], side * -112, 22, 6, 0.2 * side).d, clawFill, { vol: boneVol });
+    // foot, toes splayed forward, talons biting the ground
+    const foot = pathD(fx([[326, 722], [368, 714], [402, 726], [420, 750], [410, 768, 1], [304, 768, 1], [304, 744]]));
+    art.part(foot, art.matFill(S, 0.35, 0.2, 0.9), { vol: smallVol }, () => `<rect x="0" y="690" width="1024" height="80" fill="${scalesSm}"/>`);
+    for (const a of [-58, -24, 10, 42]) {
+      const ar = a * D2R;
+      const base = fp([362 + Math.sin(ar) * 16, 744]);
+      const end = fp([362 + Math.sin(ar) * 52, 758 + Math.cos(ar) * 2]);
+      art.part(tube([base, end], [[0, 13], [1, 10]], { n: 10 }).d, scaleFill, { vol: smallVol }, () => art.soft(pathD([base, end], false), '#2a020a', 4, 0.4, 2));
+      const tip = fp([362 + Math.sin(ar) * 62, 772]);
+      const mid = [lerp(end[0], tip[0], 0.5) + (end[0] < tip[0] ? 0 : 0), lerp(end[1], tip[1], 0.5) - 3];
+      art.part(tube([end, mid, tip], [[0, 9.5], [1, 0.6]], { n: 14 }).d, clawFill, { vol: boneVol });
+    }
     // thigh
-    const thigh = pathD(fx([[466, 546], [424, 538], [384, 552], [346, 590], [322, 632], [326, 668], [352, 684], [396, 672], [440, 646], [474, 606], [486, 572]]));
-    art.part(thigh, art.matFill(S, 0.3, 0.25, 0.92), { vol: { ...scaleVol, k: 24, sb: 16, so: 0.7 } }, () => {
+    const thigh = pathD(fx([[476, 556], [440, 534], [394, 538], [352, 566], [322, 608], [312, 650], [326, 678], [358, 684], [402, 664], [446, 630], [478, 596]]));
+    art.part(thigh, art.matFill(S, 0.3, 0.25, 0.92), { vol: { ...scaleVol, k: 24, sb: 16, so: 0.72 } }, () => {
       let s = `<rect x="0" y="520" width="1024" height="200" fill="${scalesBig}"/>` + mottle(280, 520, 470, 200, side < 0 ? 12 : 13);
-      s += art.soft(pathD(fx([[350, 600], [392, 568], [446, 566]]), false), '#ff8a68', 24, 0.28, 12);
-      s += art.soft(pathD(fx([[340, 668], [400, 664], [460, 630]]), false), '#1a0208', 22, 0.5, 10);
+      s += art.soft(pathD(fx([[340, 604], [384, 566], [440, 556]]), false), '#ff8a68', 22, 0.28, 11);
+      s += art.soft(pathD(fx([[332, 670], [396, 660], [456, 620]]), false), '#140208', 24, 0.55, 10);
+      s += art.soft(pathD(fx([[346, 640], [380, 612], [420, 600]]), false), '#140208', 8, 0.35, 5);
       return s;
     });
-    const k = fp([326, 628]);
-    art.part(spikeTube(k[0], k[1], side * -64, 36, 9, 0.15 * side).d, boneFill, { vol: boneVol });
+    const k = fp([324, 626]);
+    art.part(spikeTube(k[0], k[1], side * -66, 36, 9, 0.15 * side).d, boneFill, { vol: boneVol });
   }
   hindLeg(-1);
   hindLeg(1);
@@ -601,18 +613,19 @@ function dragonFrame(frame) {
   const bw = [46, 60, 64, 52, 30];
   const bellyL = [], bellyR = [];
   bellyC.forEach((p, i) => { const w = radAt(bw, i / (bellyC.length - 1)); bellyL.push([p[0] - w, p[1]]); bellyR.push([p[0] + w, p[1]]); });
-  for (const pl of plateStrip(bellyL, bellyR, 11, 0.13, 0.1)) {
-    art.part(pathD(pl.pts), plateFill, { vol: plateVol }, () => art.soft(pathD([pl.a, pl.m0, pl.b], false), '#fff3c8', 4, 0.55, 1.6) +
+  const bellySide = art.lin([[0, '#fff0c0', 0.22], [0.35, '#3a1404', 0], [1, '#2a0e04', 0.45]], 440, 0, 590, 0, true);
+  for (const pl of plateStrip(bellyL, bellyR, 11, 0.2, 0.1)) {
+    art.part(pathD(pl.pts), plateFill, { vol: plateVol }, () => `<rect x="420" y="380" width="200" height="340" fill="${bellySide}"/>` + art.soft(pathD([pl.a, pl.m0, pl.b], false), '#fff3c8', 4, 0.55, 1.6) +
       art.soft(pathD([pl.d, pl.m1, pl.c], false), '#3a1204', 6, 0.5, 2.5));
   }
 
   // ---------------------------------------------------------------- neck
-  const neck = tube([[486, 430], [440, 362], [410, 284], [408, 204], [430, 146], [474, 116], [524, 124], [548, 156]], [[0, 62], [0.3, 48], [0.7, 39], [1, 36]], { n: 64 });
-  for (let k = 0; k < 9; k++) art.part(edgeSpike(neck, 0.22 + k * 0.08, -1, 32 - k * 1.2, 8.5, -16, 0.18).d, boneFill, { vol: boneVol });
+  const neck = tube([[478, 440], [420, 372], [374, 290], [358, 200], [374, 122], [422, 72], [488, 62], [540, 96], [556, 152]], [[0, 62], [0.25, 47], [0.6, 39], [1, 35]], { n: 72 });
+  for (let k = 0; k < 11; k++) art.part(edgeSpike(neck, 0.16 + k * 0.07, -1, 30 - k * 0.9, 8.5, -18, 0.18).d, boneFill, { vol: boneVol });
   art.part(neck.d, scaleFill, { vol: { ...scaleVol, k: 16, sb: 10 } }, () => {
     let s = `<rect x="320" y="40" width="300" height="460" fill="${scalesMid}"/>` + mottle(320, 40, 300, 460, 21);
-    const inner = sampleOff(neck, 0.98, 0, 0.62, 40), outer = sampleOff(neck, -0.3, 0, 0.62, 40);
-    for (const pl of plateStrip(inner, outer, 10, -0.16, 0.14)) s += `<g filter="${art.vol(plateVol)}"><path d="${pathD(pl.pts)}" fill="${plateFill}"/></g>`;
+    const inner = sampleOff(neck, 0.98, 0, 0.86, 50), outer = sampleOff(neck, 0.05, 0, 0.86, 50);
+    for (const pl of plateStrip(inner, outer, 15, -0.16, 0.14)) s += `<g filter="${art.vol(plateVol)}"><path d="${pathD(pl.pts)}" fill="${plateFill}"/></g>`;
     s += art.soft(pathD(sampleOff(neck, -0.7, 0.05, 0.8, 14), false), '#ff9a7a', 14, 0.28, 7);
     return s;
   });
@@ -632,19 +645,19 @@ function dragonFrame(frame) {
     art.part(fore.d, scaleFill, { vol: { ...scaleVol, k: 11, sb: 7 } }, () => `<rect x="0" y="0" width="1024" height="768" fill="${scalesSm}"/>`);
     const w = fp(wr);
     const hc = [w[0], w[1] + (atk ? -8 : 10)];
-    art.part(pathD(ell(hc[0], hc[1], 24, 20, 12)), scaleFill, { vol: smallVol });
-    const dirs = atk ? [-82, -52, -22, 8] : [150, 168, 186, 204];
+    art.part(pathD(ell(hc[0], hc[1], 29, 23, 12)), scaleFill, { vol: smallVol }, () => `<rect x="0" y="0" width="1024" height="768" fill="${scalesSm}"/>`);
+    const dirs = atk ? [-86, -56, -26, 4] : [146, 166, 186, 206];
     dirs.forEach((dg) => {
       const a = (side < 0 ? dg : -dg) * D2R;
       const sx = Math.sin(a), sy = -Math.cos(a);
-      const b0 = [hc[0] + sx * 14, hc[1] + sy * 12];
-      const k1 = [b0[0] + sx * 20, b0[1] + sy * 20];
-      art.part(tube([b0, k1], [[0, 9.5], [1, 8]], { n: 10 }).d, scaleFill, { vol: smallVol });
+      const b0 = [hc[0] + sx * 16, hc[1] + sy * 14];
+      const k1 = [b0[0] + sx * 24, b0[1] + sy * 24];
+      art.part(tube([b0, [lerp(b0[0], k1[0], 0.5), lerp(b0[1], k1[1], 0.5)], k1], [[0, 11], [0.5, 10], [0.6, 11.5], [1, 9]], { n: 12 }).d, scaleFill, { vol: smallVol });
       const curl = (side < 0 ? 1 : -1) * (atk ? -0.55 : 0.5);
       const a2 = a + curl;
-      const tip = [k1[0] + Math.sin(a2) * 30, k1[1] - Math.cos(a2) * 30];
+      const tip = [k1[0] + Math.sin(a2) * 38, k1[1] - Math.cos(a2) * 38];
       const mid = [lerp(k1[0], tip[0], 0.5) + Math.cos(a) * 4 * Math.sign(curl), lerp(k1[1], tip[1], 0.5) + Math.sin(a) * 4 * Math.sign(curl)];
-      art.part(tube([k1, mid, tip], [[0, 7.5], [1, 0.3]], { n: 14 }).d, clawFill, { vol: boneVol });
+      art.part(tube([k1, mid, tip], [[0, 8.5], [1, 0.3]], { n: 14 }).d, clawFill, { vol: boneVol });
     });
   }
   foreleg(-1);
@@ -652,9 +665,12 @@ function dragonFrame(frame) {
 
   // ---------------------------------------------------------------- head
   const hs = atk ? 1.16 : 1.12;
-  const HX = 520, HY = atk ? 222 : 236;
-  const H = (pts) => mapPts(pts, place(HX, HY, hs));
+  const HX = 546, HY = atk ? 226 : 250;
+  const fsh = atk ? 0.74 : 1; // the snout foreshortens as the head tilts up to breathe fire
+  const H = (pts) => mapPts(pts, (x, y) => [HX + x * hs, HY + (y > 0 ? y * fsh : y) * hs]);
   const HD = (pts) => pathD(H(pts));
+  const HJ = (pts) => mapPts(pts, place(HX, HY, hs));
+  const HJD = (pts) => pathD(HJ(pts));
   const both = (half) => [half, flipX(half).reverse()];
 
   // horns
@@ -683,35 +699,35 @@ function dragonFrame(frame) {
     });
   }
   // lower jaw
-  const jawHalf = atk ? [[0, 120], [-84, 46], [-92, 116], [-76, 176], [-48, 218], [0, 232]] : [[0, 90], [-80, 38], [-78, 88], [-60, 132], [-38, 160], [0, 170]];
-  art.part(HD(sym(jawHalf)), art.matFill(S, 0.4, 0.2, 0.9), { vol: smallVol }, () => {
+  const jawHalf = atk ? [[0, 100], [-86, 36], [-98, 112], [-84, 184], [-54, 236], [0, 254]] : [[0, 90], [-80, 38], [-78, 88], [-60, 132], [-38, 160], [0, 170]];
+  art.part(HJD(sym(jawHalf)), art.matFill(S, 0.4, 0.2, 0.9), { vol: smallVol }, () => {
     let s = `<rect x="300" y="200" width="460" height="300" fill="${scalesSm}"/>`;
-    const y0 = atk ? 184 : 140, y1 = atk ? 228 : 168;
+    const y0 = atk ? 214 : 140, y1 = atk ? 250 : 168;
     for (let i = 0; i < 3; i++) {
       const ya = lerp(y0, y1, i / 3), yb = lerp(y0, y1, (i + 0.78) / 3), wv = 28 - i * 6;
-      s += `<path d="${HD([[-wv, ya, 1], [0, ya + 5], [wv, ya, 1], [wv - 4, yb, 1], [0, yb + 5], [-wv + 4, yb, 1]])}" fill="${plateFill}" opacity="0.85"/>`;
+      s += `<path d="${HJD([[-wv, ya, 1], [0, ya + 5], [wv, ya, 1], [wv - 4, yb, 1], [0, yb + 5], [-wv + 4, yb, 1]])}" fill="${plateFill}" opacity="0.85"/>`;
     }
     // shadow cast by the snout onto the jaw
-    s += art.blob(HD(sym([[0, 80], [-70, 40], [-62, 110], [-30, 150], [0, 156]])), '#14020a', 0.6, 10);
+    s += atk ? '' : art.blob(HJD(sym([[0, 80], [-70, 40], [-62, 110], [-30, 150], [0, 156]])), '#14020a', 0.6, 10);
     return s;
   });
   for (const sx of [-1, 1]) {
-    const base = atk ? [[-84, 150], [-66, 192]] : [[-70, 112], [-54, 140]];
+    const base = atk ? [[-90, 172], [-70, 216]] : [[-70, 112], [-54, 140]];
     base.forEach(([x, y], i) => {
-      const p = H([[sx < 0 ? x : -x, y]])[0];
+      const p = HJ([[sx < 0 ? x : -x, y]])[0];
       art.part(spikeTube(p[0], p[1] - 4, sx * (128 + i * 14), (24 - i * 4) * hs, 6.5, 0.1 * sx).d, boneFill, { vol: boneVol });
     });
   }
   if (atk) {
     // gaping mouth: gullet glowing from the throat, rows of fangs
-    art.part(HD(sym([[0, 100], [-72, 52], [-74, 112], [-60, 162], [-34, 198], [0, 210]])), art.rad([[0, '#fff1a0'], [0.2, '#ffb21a'], [0.48, '#d0300c'], [0.8, '#4a0410'], [1, '#22020a']], 0.5, 0.48, 0.6), { vol: false }, () =>
-      art.soft(HD([[-62, 70], [-50, 110], [-30, 140]]), '#ff8a5a', 10, 0.45, 5) + art.soft(HD([[62, 70], [50, 110], [30, 140]]), '#ff8a5a', 10, 0.45, 5) +
-      art.blob(HD(sym([[0, 150], [-30, 160], [-24, 196], [0, 204]])), '#8a0a14', 0.7, 5));
+    art.part(HJD(sym([[0, 56], [-74, 30], [-84, 104], [-70, 168], [-42, 214], [0, 228]])), art.rad([[0, '#fff8d0'], [0.22, '#ffc232'], [0.5, '#e8460e'], [0.8, '#5a0810'], [1, '#2a0208']], 0.5, 0.64, 0.66), { vol: false }, () =>
+      art.soft(HJD([[-70, 60], [-66, 120], [-44, 180]]), '#ff8a5a', 12, 0.45, 5) + art.soft(HJD([[70, 60], [66, 120], [44, 180]]), '#ff8a5a', 12, 0.45, 5) +
+      art.blob(HJD(sym([[0, 168], [-34, 178], [-28, 214], [0, 222]])), '#8a0a14', 0.75, 5) + art.soft(HJD([[-28, 196], [0, 186], [28, 196]]), '#ff6a4a', 5, 0.5, 2));
     for (const sx of [-1, 1]) {
       for (let i = 0; i < 5; i++) {
         const t = i / 4;
-        const x = lerp(-74, -26, t), y = lerp(150, 206, Math.pow(t, 0.8));
-        const p = H([[sx < 0 ? x : -x, y]])[0];
+        const x = lerp(-82, -30, t), y = lerp(160, 224, Math.pow(t, 0.8));
+        const p = HJ([[sx < 0 ? x : -x, y]])[0];
         const L = (i === 3 ? 32 : 18) * hs;
         art.part(tube([[p[0], p[1] + 6], [p[0] + sx * 1.5, p[1] - L * 0.5], [p[0] + sx * 3, p[1] - L]], [[0, i === 3 ? 7.5 : 5], [1, 0.3]], { n: 10 }).d, boneFill, { vol: { ...boneVol, ao: 0.3 } });
       }
@@ -750,9 +766,9 @@ function dragonFrame(frame) {
   for (const sx of [-1, 1]) art.add(`<path d="${HD([[sx * 10, 128, 1], [sx * 18, 121], [sx * 30, 118, 1], [sx * 22, 126]])}" fill="#140204"/>`);
   // fangs overhanging the lower jaw
   for (const sx of [-1, 1]) {
-    const pts = atk ? [[-90, 40, 12], [-80, 62, 14], [-68, 86, 16], [-58, 108, 30], [-44, 126, 15], [-26, 138, 12]] : [[-58, 82, 10], [-50, 106, 24], [-40, 126, 12], [-26, 139, 9]];
+    const pts = atk ? [[-92, 34, 16], [-80, 58, 18], [-68, 84, 22], [-56, 108, 40], [-42, 128, 20], [-24, 140, 16]] : [[-58, 82, 10], [-50, 106, 24], [-40, 126, 12], [-26, 139, 9]];
     for (const [x, y, l] of pts) {
-      const X = HX + (sx < 0 ? x : -x) * hs, Y = HY + y * hs;
+      const X = HX + (sx < 0 ? x : -x) * hs, Y = HY + y * fsh * hs;
       art.part(tube([[X, Y - 6], [X + sx * 1, Y + l * 0.5 * hs], [X + sx * 3, Y + l * hs]], [[0, l > 20 ? 6.5 : 4.5], [1, 0.3]], { n: 10 }).d, boneFill, { vol: { ...boneVol, ao: 0.3 } });
     }
   }
@@ -788,25 +804,343 @@ function dragonFrame(frame) {
 
   // ---------------------------------------------------------------- shading, breath
   if (atk) art.add(`<rect x="0" y="0" width="1024" height="768" fill="${art.rad([[0, '#ffb040', 0.6], [0.45, '#ff6a10', 0.28], [1, '#ff4000', 0]], 520, 560, 420, 520, 560, true)}"/>`);
-  figShade(art, 0.42, '#10020a', 0.35);
+  figShade(art, 0.5, '#10020a', 0.4);
   art.layer('over');
   if (!atk) {
     for (const sx of [-1, 1]) {
       const n0 = H([[sx * 22, 124]])[0];
       const P = (pts) => pts.map(([x, y]) => [n0[0] + sx * x, n0[1] + y]);
-      art.add(smokePlume(art, P([[4, 4], [30, 16], [70, 14], [104, -16], [104, -52], [80, -64], [70, -46]]), 7, 20, 0.62, sx < 0 ? 5 : 6));
-      art.add(smokePlume(art, P([[8, 8], [40, 30], [90, 30], [130, 4], [150, -40], [150, -96], [170, -140]]), 8, 30, 0.42, sx < 0 ? 7 : 8));
+      art.add(smokePlume(art, P([[2, 4], [18, 18], [48, 30], [92, 34], [134, 22], [162, -8], [170, -46], [158, -80], [140, -84], [136, -64]]), 4, 26, 0.62, sx < 0 ? 5 : 6));
+      art.add(smokePlume(art, P([[4, 8], [26, 30], [70, 46], [124, 44], [170, 20], [196, -26], [200, -84], [222, -140], [214, -190]]), 5, 40, 0.42, sx < 0 ? 7 : 8));
       art.add(art.glow(HD([[sx * 12, 127, 1], [sx * 18, 122], [sx * 27, 119, 1], [sx * 21, 125]]), '#ffb050', '#ff5a10', [[7, 0.7], [2.5, 0.9]]));
     }
   } else {
-    const m = H([[0, 176]])[0];
-    art.add(fireJet(art, { x: m[0], y: m[1], len: 560, ang: 180, w0: 22, w1: 300, seed: 3, strands: 26, disp: 50 }));
+    const m = HJ([[0, 150]])[0];
+    art.add(fireJet(art, { x: m[0], y: m[1], len: 600, ang: 180, w0: 16, w1: 320, seed: 3, strands: 26, disp: 50 }));
     art.add(sparks(art, rng(77), 60, { x: 230, y: 400, w: 580, h: 370 }, 180, ['#fff6c0', '#ffd23a', '#ff9a1a', '#ff5a10'], [3, 12]));
-    art.add(art.glow(HD(ell(0, 160, 34, 30, 14)), null, '#ffb020', [[22, 0.55], [9, 0.45]]));
+    art.add(art.glow(HJD(ell(0, 150, 44, 44, 14)), null, '#ffb020', [[24, 0.6], [10, 0.45]]));
   }
   return art.svg();
 }
 
+// ================================================================== ASH WARDEN
+// Horned knight in black spiked plate, ember trim, burning greatsword. 800 x 1040.
+function ashwardenFrame(frame) {
+  const atk = frame === 'attack';
+  const art = new Art('ashwarden', frame, 800, 1040, atk ? 23 : 19);
+  const CX = 400;
+  const plateVol = { k: 10, sb: 6, sc: '#050306', so: 0.6, hk: 4, hb: 2.2, ho: 0.38, rk: 2.4, ro: 0.5, ao: 0.6, aox: 3, aoy: 7, aob: 7, aoc: '#050304' };
+  const smallVol = { ...plateVol, k: 5, sb: 3, hk: 2.5, hb: 1.4, aoy: 4, aob: 4 };
+  const steel = (ang = 0) => art.once('st' + ang, () => {
+    const a = ang * D2R, dx = Math.sin(a) * 0.5, dy = Math.cos(a) * 0.5;
+    return art.lin([[0, '#7c7888'], [0.2, '#34313c'], [0.42, '#16141a'], [0.54, '#4a4754'], [0.64, '#17151b'], [1, '#0c0b0e']], 0.5 - dx, 0.5 - dy, 0.5 + dx, 0.5 + dy);
+  });
+  const steelR = art.rad([[0, '#8a8694'], [0.22, '#3a3742'], [0.58, '#17151a'], [1, '#0a090c']], 0.34, 0.26, 0.85);
+  const emberTrim = (d, w = 8) => `<path d="${d}" fill="none" stroke="#ff4a12" stroke-width="${w + 8}" opacity="0.18" filter="${art.blur(5)}"/><path d="${d}" fill="none" stroke="#7a1208" stroke-width="${w}"/><path d="${d}" fill="none" stroke="#e8501a" stroke-width="${r1(w * 0.3)}" opacity="0.85"/>`;
+  const spec = (d, w = 3, op = 0.6) => art.soft(d, '#e4e8fa', w, op, 1.1);
+  const keyHi = (d, w = 10, op = 0.22) => art.soft(d, KEY, w, op, w * 0.5);
+  const dark = (d, w = 6, op = 0.7) => art.soft(d, '#040203', w, op, w * 0.3);
+  const P = (pts) => pathD(pts);
+  const mir = (pts) => flipX(pts, CX).reverse();
+  const swordGlow = atk ? [170, 120] : [222, 780];
+  const emberLight = art.rad([[0, '#ff6a1a', 0.5], [0.5, '#ff3a0a', 0.16], [1, '#ff2000', 0]], swordGlow[0], swordGlow[1], 400, swordGlow[0], swordGlow[1], true);
+
+  // ---------------------------------------------------------------- cloak
+  const cloakPts = [[262, 262], [538, 262], [618, 360], [664, 540], [694, 740], [712, 900], [698, 968], [668, 940], [646, 996], [608, 952], [574, 1004], [532, 968], [500, 990], [300, 990], [268, 966], [228, 1006], [194, 956], [156, 998], [130, 946], [100, 968], [92, 900], [110, 740], [138, 540], [182, 360]];
+  art.part(P(cloakPts), art.lin([[0, '#2e2226'], [0.45, '#171113'], [1, '#0d090a']], 0, 0, 1, 1), { vol: { ...plateVol, k: 18, sb: 14, ho: 0.15, ro: 0.55, ao: 0 } }, () => {
+    let s = '';
+    const R = rng(5);
+    for (let i = 0; i < 10; i++) {
+      const x = lerp(120, 690, i / 9) + (R() - 0.5) * 16;
+      s += art.soft(P([[lerp(x, CX, 0.6), 300], [lerp(x, CX, 0.3), 620], [x, 990]]), '#050304', 28, 0.65, 12);
+      s += art.soft(P([[lerp(x + 26, CX, 0.6), 300], [lerp(x + 26, CX, 0.3), 620], [x + 26, 990]]), '#5e4a4e', 10, 0.42, 6);
+    }
+    // ember glow eating the frayed hem
+    const hem = pathD(cloakPts.slice(5, 21), false);
+    s += `<path d="${hem}" fill="none" stroke="#ff3a08" stroke-width="70" opacity="0.5" filter="${art.blur(18)}"/>`;
+    s += `<path d="${hem}" fill="none" stroke="#ff7a1a" stroke-width="16" opacity="0.8" filter="${art.blur(5)}"/>`;
+    s += `<path d="${hem}" fill="none" stroke="#ffd070" stroke-width="4" opacity="0.95" filter="${art.blur(1.2)}"/>`;
+    return s;
+  });
+
+  // ---------------------------------------------------------------- attack: blade behind the shoulders
+  let sw = null;
+
+  // ---------------------------------------------------------------- legs
+  function leg(f) {
+    const cuisse = f([[306, 606, 1], [390, 596, 1], [396, 690], [388, 772, 1], [322, 778, 1], [302, 690]]);
+    art.part(P(cuisse), steel(-25), { vol: plateVol }, () => spec(P(f([[314, 614], [308, 700], [326, 770]])), 3.5, 0.7) + keyHi(P(f([[324, 620], [318, 720]])), 22, 0.26) +
+      dark(P(f([[360, 600], [362, 690], [356, 774]])), 5, 0.5) + spec(P(f([[354, 602], [356, 690], [350, 770]])), 2, 0.35) + dark(P(f([[316, 690], [394, 684]])), 6, 0.6));
+    const greave = f([[318, 816, 1], [386, 816, 1], [394, 880], [382, 966, 1], [326, 966, 1], [312, 880]]);
+    art.part(P(greave), steel(-20), { vol: plateVol }, () => spec(P(f([[324, 826], [318, 880], [330, 958]])), 3.5, 0.7) + keyHi(P(f([[328, 830], [324, 930]])), 20, 0.26) +
+      dark(P(f([[358, 818], [362, 880], [356, 964]])), 5, 0.55) + spec(P(f([[352, 820], [356, 880], [350, 962]])), 2, 0.4) + emberTrim(P(f([[330, 962], [380, 962]])), 6));
+    const sab = f([[300, 984], [330, 954, 1], [380, 954, 1], [404, 980], [416, 1040, 1], [284, 1040, 1], [286, 1006]]);
+    art.part(P(sab), steelR, { vol: plateVol }, () => {
+      let s = '';
+      for (let i = 0; i < 3; i++) s += dark(P(f([[290, 990 + i * 17], [350, 980 + i * 17], [412, 990 + i * 17]])), 5, 0.65) + spec(P(f([[292, 986 + i * 17], [340, 977 + i * 17]])), 2, 0.4);
+      return s;
+    });
+    // knee: poleyn with a side fan and a spike
+    art.part(P(f([[310, 774], [284, 796, 1], [314, 814]])), steel(10), { vol: smallVol }, () => emberTrim(P(f([[284, 796], [314, 814]])), 4));
+    const kn = f([[310, 766], [390, 762], [402, 792], [380, 826], [326, 828], [300, 796]]);
+    art.part(P(kn), steelR, { vol: smallVol }, () => emberTrim(P(f([[308, 796], [330, 826], [376, 824], [396, 792]])), 6) + spec(P(f([[320, 780], [350, 770]])), 2.5, 0.6));
+    const kp = f([[350, 800]])[0];
+    art.part(spikeTube(kp[0], kp[1], kp[0] < CX ? -160 : 160, 40, 12, 0.08).d, steel(30), { vol: smallVol });
+  }
+  leg((p) => p);
+  leg((p) => mir(p));
+
+  // ---------------------------------------------------------------- faulds, tabard, belt
+  art.part(P(sym([[CX, 526], [330, 526, 1], [306, 574], [290, 648, 1], [334, 660], [CX, 650]], CX)), steel(0), { vol: plateVol }, () => {
+    let s = '';
+    for (let i = 0; i < 4; i++) {
+      const y = 556 + i * 26;
+      s += dark(P([[296, y + 6 + i * 3], [CX, y], [504, y + 6 + i * 3]]), 6, 0.8) + spec(P([[302, y], [CX - 40, y - 5]]), 2.2, 0.45);
+    }
+    return s + emberTrim(P([[290, 648], [334, 660], [CX, 650], [466, 660], [510, 648]]), 7);
+  });
+  const tab = [[370, 520], [430, 520], [442, 700], [440, 816], [424, 792], [412, 828], [398, 796], [384, 826], [372, 794], [360, 816], [358, 700]];
+  art.part(P(tab), art.lin([[0, '#7a1410'], [0.5, '#480a0a'], [1, '#260606']], 0, 0, 0.4, 1), { vol: { ...plateVol, ro: 0.35, ho: 0.25 } }, () =>
+    art.soft(P([[384, 530], [380, 700], [372, 800]]), '#160404', 10, 0.6, 5) + art.soft(P([[420, 530], [424, 700], [430, 800]]), '#ff6a3a', 5, 0.18, 4) +
+    `<path d="${P(tab.slice(3, 10))}" fill="none" stroke="#ff6a1a" stroke-width="9" opacity="0.85" filter="${art.blur(3)}"/>` +
+    // ember sigil stitched on the tabard
+    `<path d="M400 600L384 640L400 668L416 640Z" fill="none" stroke="#ff7a2a" stroke-width="3" opacity="0.8"/>`);
+  art.part(P([[320, 494, 1], [480, 494, 1], [486, 532, 1], [314, 532, 1]]), art.lin([[0, '#3a2a24'], [0.5, '#1a1210'], [1, '#0e0a08']], 0, 0, 0, 1), { vol: smallVol }, () =>
+    spec(P([[322, 498], [478, 498]]), 2, 0.3) + `<rect x="382" y="496" width="36" height="34" rx="4" fill="#2a1a14"/><rect x="389" y="503" width="22" height="20" rx="2" fill="#ff6a1a"/><rect x="394" y="508" width="12" height="10" fill="#ffd27a"/>`);
+
+  // ---------------------------------------------------------------- torso
+  const chestD = P(sym([[CX, 248], [360, 252], [322, 270], [302, 316], [300, 382], [312, 442], [338, 490], [370, 508], [CX, 512]], CX));
+  art.part(chestD, steelR, { vol: { ...plateVol, k: 22, sb: 14 } }, () => {
+    let s = '';
+    s += art.blob(P([[326, 288], [392, 276], [394, 384], [330, 384]]), '#8a8698', 0.16, 14);
+    s += art.blob(P([[410, 280], [478, 290], [474, 392], [408, 386]]), '#040203', 0.5, 14);
+    // keel ridge
+    s += dark(P([[CX + 4, 262], [CX + 4, 506]]), 7, 0.75) + spec(P([[CX - 3, 266], [CX - 3, 498]]), 2.5, 0.55);
+    // pectoral plate edges
+    s += dark(P([[306, 392], [350, 404], [CX, 396], [450, 404], [494, 392]]), 8, 0.75) + spec(P([[308, 386], [350, 397], [CX - 6, 390]]), 2.5, 0.5);
+    s += spec(P([[326, 292], [352, 276], [388, 270]]), 3, 0.6);
+    // abdomen lames
+    for (const y of [438, 470]) s += dark(P([[316, y], [CX, y + 14], [484, y]]), 7, 0.75) + spec(P([[318, y - 6], [CX - 30, y + 4]]), 2.2, 0.4);
+    s += emberTrim(P([[302, 316], [322, 270], [360, 252], [CX, 248], [440, 252], [478, 270], [498, 316]]), 8);
+    s += `<rect x="280" y="240" width="240" height="300" fill="${emberLight}"/>`;
+    return s;
+  });
+  // rune medallion
+  art.part(P(ell(CX, 342, 30, 30, 16)), art.rad([[0, '#0c0806'], [0.8, '#1a1412'], [1, '#4a4450']], 0.5, 0.5, 0.5), { vol: { ...smallVol, ho: 0.5, ro: 0.6 } }, () => emberTrim(P(ell(CX, 342, 30, 30, 16)), 4));
+  const rune = `M${CX} 318L${CX + 20} 352H${CX - 20}Z M${CX} 326V366 M${CX - 14} 334L${CX + 14} 334`;
+  art.add(`<path d="${rune}" fill="none" stroke="#ffcf70" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>`);
+  art.layer('over');
+  art.add(`<path d="${rune}" fill="none" stroke="#ff6a14" stroke-width="9" opacity="0.8" stroke-linecap="round" filter="${art.blur(5)}"/><path d="${rune}" fill="none" stroke="#fff4c4" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>`);
+  art.layer('fig');
+  // gorget
+  art.part(P([[344, 232, 1], [CX, 222], [456, 232, 1], [478, 272], [CX, 286], [322, 272]]), steel(10), { vol: smallVol }, () =>
+    spec(P([[336, 258], [372, 246]]), 2.5, 0.5) + dark(P([[330, 254], [CX, 266], [470, 254]]), 5, 0.6) + emberTrim(P([[322, 272], [CX, 286], [478, 272]]), 6));
+
+  // ---------------------------------------------------------------- arms and shoulders
+  function arm(sh, el, wr, only = 'all', lit = 0) {
+    const side = sh[0] < CX ? -1 : 1;
+    const fireLit = (tb) => lit ? art.soft(P([tubeAt(tb, 0.05, 0.75 * side * -1), tubeAt(tb, 0.95, 0.75 * side * -1)].map((p) => [p.x, p.y])), '#ff7a2a', 10, lit, 4) : '';
+    const up = tube([sh, [lerp(sh[0], el[0], 0.5), lerp(sh[1], el[1], 0.5)], el], [[0, 40], [1, 33]], { n: 16, start: 'flat' });
+    if (only !== 'fore') art.part(up.d, steel(side * 25), { vol: plateVol }, () => {
+      let s = fireLit(up);
+      for (let i = 1; i < 4; i++) { const p = tubeAt(up, i / 4, 1), q = tubeAt(up, i / 4 + 0.05, -1); s += dark(`M${r1(p.x)} ${r1(p.y)}L${r1(q.x)} ${r1(q.y)}`, 5, 0.65); }
+      return s + spec(P([tubeAt(up, 0.08, 0.6 * -side), tubeAt(up, 0.92, 0.6 * -side)].map((p) => [p.x, p.y])), 3, 0.5);
+    });
+    const fo = tube([el, [lerp(el[0], wr[0], 0.5), lerp(el[1], wr[1], 0.5)], wr], [[0, 31], [0.6, 30], [1, 33]], { n: 16, end: 'flat' });
+    if (only === 'upper') return;
+    art.part(fo.d, steel(side * 15), { vol: plateVol }, () => fireLit(fo) + spec(P([tubeAt(fo, 0.1, 0.55 * -side), tubeAt(fo, 0.88, 0.55 * -side)].map((p) => [p.x, p.y])), 3, 0.55) +
+      dark(P([tubeAt(fo, 0.45, 0.15), tubeAt(fo, 0.85, 0.15)].map((p) => [p.x, p.y])), 4, 0.5));
+    // flared cuff
+    const c0 = tubeAt(fo, 0.78, 1.15), c1 = tubeAt(fo, 0.78, -1.15), c2 = tubeAt(fo, 1, -1.45), c3 = tubeAt(fo, 1, 1.45);
+    art.part(P([[c0.x, c0.y, 1], [c1.x, c1.y, 1], [c2.x, c2.y, 1], [c3.x, c3.y, 1]]), steel(side * 30), { vol: smallVol }, () => emberTrim(P([[c2.x, c2.y], [c3.x, c3.y]]), 4) + spec(P([[c0.x, c0.y], [c3.x, c3.y]]), 2, 0.5));
+    // couter: elbow cop, fan and spike
+    art.part(P([[el[0] + side * 26, el[1] - 26, 1], [el[0] + side * 52, el[1] + 2, 1], [el[0] + side * 24, el[1] + 30, 1]]), steel(side * 50), { vol: smallVol });
+    art.part(P(ell(el[0], el[1], 32, 28, 12)), steelR, { vol: smallVol }, () => spec(P([[el[0] - 20, el[1] - 12], [el[0] - 2, el[1] - 22]]), 2.2, 0.6));
+    art.part(spikeTube(el[0] + side * 18, el[1] + 2, side * 100, 36, 11, 0.1 * side).d, steel(40), { vol: smallVol });
+  }
+  // armoured fist: a cuffed block with knuckle plates
+  function fist(cx, cy, rot, grip, lit = 0) {
+    const tf = rotAbout(cx, cy, rot);
+    const T = (pts) => mapPts(pts, tf);
+    art.part(P(T([[cx - 26, cy - 24, 1], [cx + 24, cy - 26, 1], [cx + 30, cy + 6], [cx + 22, cy + 30, 1], [cx - 22, cy + 30, 1], [cx - 30, cy + 4]])), steelR, { vol: smallVol }, () => {
+      let s = '';
+      for (let i = 0; i < 4; i++) s += dark(P(T([[cx - 22 + i * 13, cy + 4], [cx - 22 + i * 13, cy + 28]])), 3, 0.6) + spec(P(T([[cx - 26 + i * 13, cy + 6], [cx - 26 + i * 13, cy + 16]])), 1.6, 0.45);
+      s += spec(P(T([[cx - 20, cy - 18], [cx + 14, cy - 22]])), 2.4, 0.6) + dark(P(T([[cx - 28, cy + 2], [cx + 28, cy + 2]])), 4, 0.6);
+      if (lit) s += art.soft(P(T([[cx - 30, cy + 10], [cx - 26, cy - 22], [cx + 20, cy - 28]])), '#ff8a30', 9, lit, 3);
+      return s;
+    });
+    if (!grip) for (let i = 0; i < 3; i++) {
+      const k = T([[cx - 13 + i * 13, cy + 30]])[0];
+      art.part(spikeTube(k[0], k[1], 180 + rot, 10, 4, 0).d, steel(20), { vol: smallVol });
+    }
+  }
+  function pauldron(f) {
+    const L = f([[0, 0]])[0][0] === 0;
+    for (const [x, y, a, l, r] of [[214, 262, -42, 84, 16], [258, 238, -18, 108, 19], [306, 232, 4, 80, 15]]) {
+      const p = f([[x, y]])[0];
+      const sp = spikeTube(p[0], p[1], L ? a : -a, l, r, L ? 0.08 : -0.08);
+      art.part(sp.d, steel(L ? 30 : -30), { vol: smallVol }, () => spec(P(sp.L.slice(2, -4)), 2, 0.45));
+    }
+    for (let i = 1; i >= 0; i--) {
+      const y = 350 + i * 20;
+      art.part(P(f([[186, y - 10, 1], [244, y + 2], [300, y], [350, y - 12, 1], [346, y + 12, 1], [298, y + 22], [242, y + 24], [190, y + 10, 1]])), steel(L ? 20 : -20), { vol: smallVol }, () =>
+        spec(P(f([[190, y - 7], [244, y + 5], [290, y + 3]])), 2, 0.5) + dark(P(f([[192, y + 8], [242, y + 22], [298, y + 20], [346, y + 10]])), 4, 0.6));
+    }
+    const dome = f([[170, 326, 1], [178, 282], [206, 246], [256, 222], [318, 222], [360, 246], [378, 292, 1], [356, 330], [300, 352], [236, 354], [192, 344]]);
+    art.part(P(dome), steelR, { vol: { ...plateVol, k: 16, sb: 10 } }, () =>
+      spec(P(f([[188, 304], [204, 266], [246, 238]])), 4, 0.7) + keyHi(P(f([[194, 300], [228, 256], [288, 236]])), 26, 0.22) +
+      dark(P(f([[182, 316], [256, 276], [350, 270]])), 10, 0.6) + spec(P(f([[184, 309], [256, 268], [336, 262]])), 2.5, 0.5) +
+      emberTrim(P(f([[170, 326], [192, 344], [236, 354], [300, 352], [356, 330], [378, 292]])), 6) + `<rect x="0" y="200" width="800" height="200" fill="${emberLight}"/>` +
+      f([[190, 328], [232, 340], [276, 344], [318, 338], [354, 318]]).map(([x, y]) => `<circle cx="${r1(x)}" cy="${r1(y)}" r="4" fill="#0a080a"/><circle cx="${r1(x - 1)}" cy="${r1(y - 1)}" r="2" fill="#b8b4c4"/>`).join(''));
+    // raised haute-piece ridge
+    art.part(P(f([[196, 266, 1], [252, 232], [334, 230, 1], [338, 246, 1], [256, 248], [206, 280, 1]])), steel(L ? 40 : -40), { vol: smallVol }, () => spec(P(f([[200, 266], [252, 234], [330, 232]])), 2, 0.6));
+  }
+
+  if (!atk) {
+    arm([516, 338], [562, 456], [576, 556]);
+    fist(578, 584, -6, false);
+    pauldron((p) => mir(p));
+    sw = sword(222, 630, 180);
+    arm([284, 338], [256, 458], [226, 540]);
+    pauldron((p) => p);
+    fist(224, 572, 0, true);
+  } else {
+    // sword cocked high over the right shoulder, both hands on the grip
+    arm([516, 336], [492, 410], [334, 274], 'upper');
+    pauldron((p) => mir(p));
+    arm([284, 340], [186, 384], [282, 246], 'upper');
+    pauldron((p) => p);
+    arm([284, 340], [186, 384], [282, 246], 'fore', 0.55);
+  }
+
+  // ---------------------------------------------------------------- helm
+  for (const f of [(p) => p, (p) => flipX(p, CX)]) {
+    const hn = tube(f([[352, 140], [306, 128], [266, 96], [248, 52], [260, 12]]), [[0, 22], [0.5, 13], [1, 0]], { n: 36 });
+    const L = hn.sp[2][0] < CX;
+    art.part(hn.d, art.lin([[0, '#a69888'], [0.35, '#4a3e38'], [1, '#16110e']], L ? 0 : 1, 0, L ? 0.7 : 0.3, 1), { vol: smallVol }, () => {
+      let s = '';
+      for (let i = 2; i < hn.L.length - 4; i += 3) s += `<path d="M${r1(hn.L[i][0])} ${r1(hn.L[i][1])}L${r1(hn.R[i][0])} ${r1(hn.R[i][1])}" stroke="#080404" stroke-width="2" opacity="0.5"/>`;
+      return s + spec(P(hn.L.slice(4, -6)), 2, 0.35);
+    });
+  }
+  const helmD = P(sym([[CX, 76], [374, 80], [354, 96], [342, 126], [336, 172], [338, 214], [346, 242], [370, 258], [CX, 264]], CX));
+  art.part(helmD, steelR, { vol: { ...plateVol, k: 14, sb: 9 } }, () => {
+    let s = '';
+    s += art.blob(P([[412, 90], [458, 124], [464, 246], [412, 258]]), '#040203', 0.45, 12);
+    s += spec(P([[354, 126], [362, 100], [388, 82]]), 3.5, 0.75) + keyHi(P([[352, 150], [356, 112], [380, 92]]), 18, 0.22);
+    s += dark(P([[CX + 4, 80], [CX + 4, 258]]), 6, 0.7) + spec(P([[CX - 3, 84], [CX - 3, 162]]), 2.5, 0.6);
+    // visor brow and face plate
+    s += dark(P([[338, 160], [CX, 168], [462, 160]]), 12, 0.75) + spec(P([[340, 154], [384, 160]]), 2, 0.5);
+    s += dark(P([[338, 200], [CX, 206], [462, 200]]), 6, 0.6);
+    for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) for (const sx of [-1, 1]) s += `<circle cx="${CX + sx * (14 + c * 13)}" cy="${218 + r * 12}" r="3.4" fill="#1a0402"/><circle cx="${CX + sx * (14 + c * 13)}" cy="${218 + r * 12}" r="1.9" fill="#ff5a14" opacity="0.85"/>`;
+    s += emberTrim(P([[346, 242], [370, 258], [CX, 264], [430, 258], [454, 242]]), 6);
+    return s;
+  });
+  // glowing visor slits, slanted into a scowl
+  for (const sx of [-1, 1]) {
+    art.add(`<path d="${P([[CX + sx * 56, 170, 1], [CX + sx * 10, 184], [CX + sx * 8, 192, 1], [CX + sx * 54, 180]])}" fill="#1a0402"/>`);
+    art.layer('over');
+    art.add(art.glow(P([[CX + sx * 52, 172, 1], [CX + sx * 12, 184], [CX + sx * 10, 189, 1], [CX + sx * 50, 178]]), '#fff2c0', '#ff5a10', [[14, 0.7], [5, 0.9], [2, 1]]));
+    art.layer('fig');
+  }
+
+
+  if (atk) {
+    sw = sword(268, 214, -52, 262);
+    arm([516, 336], [492, 410], [334, 274], 'fore', 0.35);
+    fist(294, 240, -52, true, 0.7);
+    fist(324, 264, -52, true, 0.55);
+    const pm = sw.at(-104, 0);
+    art.part(P(ell(pm[0], pm[1], 17, 17, 12)), steelR, { vol: smallVol }, () => `<circle cx="${r1(pm[0])}" cy="${r1(pm[1])}" r="6" fill="#ff6a1a"/>`);
+  }
+
+  // ---------------------------------------------------------------- light, smoke, fire
+  figShade(art, 0.32, '#060306', 0.22);
+  art.add(`<rect x="0" y="0" width="800" height="1040" fill="${emberLight}"/>`);
+  art.layer('under');
+  const R = rng(atk ? 31 : 29);
+  for (let i = 0; i < 8; i++) {
+    const x = lerp(110, 700, i / 7), y = 960 + R() * 30, sd = x < CX ? -1 : 1;
+    art.add(smokePlume(art, [[x, y], [x + sd * 34, y - 80], [x + sd * 80, y - 150], [x + sd * 66, y - 240], [x + sd * 100, y - 330]], 16, 52, 0.6, 50 + i, ['#141012', '#3a3236', '#6a5e62']));
+  }
+  art.layer('over');
+  for (const [x, y, sd] of [[120, 970, -1], [690, 960, 1], [240, 1004, -1], [580, 1004, 1], [160, 1000, 1], [650, 1000, -1]]) {
+    art.add(smokePlume(art, [[x, y], [x + sd * 26, y - 50], [x + sd * 56, y - 96], [x + sd * 44, y - 160], [x + sd * 60, y - 210]], 10, 34, 0.55, 70 + x, ['#1a1416', '#4a4044', '#7a6e72']));
+  }
+  art.add(sparks(art, R, 40, { x: 90, y: 760, w: 620, h: 270 }, 0, ['#ffe08a', '#ffb030', '#ff6a14'], [2, 9]));
+  swordFire(sw, atk);
+  return art.svg();
+
+  function sword(gx, gy, ang, L = 392) {
+    const a = ang * D2R, dx = Math.sin(a), dy = -Math.cos(a), nx = -dy, ny = dx;
+    const at = (t, u) => [gx + dx * t + nx * u, gy + dy * t + ny * u];
+    const bladeD = P([[...at(0, -26), 1], [...at(0, 26), 1], at(L * 0.8, 19), [...at(L, 0), 1], at(L * 0.8, -19)]);
+    const bfill = art.lin([[0, '#5c5866'], [0.44, '#24222b'], [0.5, '#0e0c10'], [0.56, '#2c2a34'], [1, '#16141a']], ...at(0, -26), ...at(0, 26), true);
+    art.part(bladeD, bfill, { vol: { ...smallVol, ao: 0.4 } }, () =>
+      `<path d="${P([at(4, -23), at(L * 0.8, -17), at(L - 4, 0)])}" fill="none" stroke="#ff6a14" stroke-width="6" opacity="0.95"/>` +
+      `<path d="${P([at(4, 23), at(L * 0.8, 17), at(L - 4, 0)])}" fill="none" stroke="#ffaa38" stroke-width="6" opacity="0.95"/>` +
+      `<path d="${P([at(14, 0), at(L * 0.74, 0)])}" fill="none" stroke="#ff3a0a" stroke-width="13" opacity="0.85" filter="${art.blur(3)}"/>` +
+      `<path d="${P([at(14, 0), at(L * 0.74, 0)])}" fill="none" stroke="#ffd070" stroke-width="3.2"/>` +
+      `<path d="${P([at(30, -12), at(L * 0.7, -9)])}" fill="none" stroke="#c8ccdc" stroke-width="2" opacity="0.4"/>`);
+    const cg = [at(-14, -82), at(-4, -62), at(0, -24), at(-2, 0), at(0, 24), at(-4, 62), at(-14, 84), [...at(14, 92), 1], at(8, 62), at(12, 26), at(16, 0), at(12, -26), at(8, -62), [...at(14, -90), 1]];
+    art.part(P(cg), steel(ang), { vol: smallVol }, () => emberTrim(P([at(-2, -60), at(-8, 0), at(-2, 60)]), 4) + spec(P([at(-10, -70), at(-4, -30)]), 2, 0.5));
+    art.part(tube([at(-16, 0), at(-94, 0)], [[0, 11], [1, 12]], { n: 12 }).d, art.lin([[0, '#3a2620'], [0.5, '#1a100c'], [1, '#0a0606']], 0, 0, 1, 0), { vol: smallVol }, () => {
+      let s = '';
+      for (let i = 0; i < 7; i++) s += `<path d="M${at(-22 - i * 11, -12).map(r1).join(' ')}L${at(-28 - i * 11, 12).map(r1).join(' ')}" stroke="#5a3a2a" stroke-width="3" opacity="0.7"/>`;
+      return s;
+    });
+    if (!atk) {
+      const pm = at(-104, 0);
+      art.part(P(ell(pm[0], pm[1], 17, 17, 12)), steelR, { vol: smallVol }, () => `<circle cx="${r1(pm[0])}" cy="${r1(pm[1])}" r="6" fill="#ff6a1a"/>`);
+    }
+    return { at, L, bladeD };
+  }
+
+  function swordFire(sw, big) {
+    art.layer('over');
+    const { at, L } = sw;
+    const FR = rng(big ? 91 : 83);
+    art.add(`<path d="${sw.bladeD}" fill="none" stroke="#ff5a10" stroke-width="${big ? 110 : 80}" opacity="${big ? 0.5 : 0.32}" filter="${art.blur(big ? 32 : 22)}"/>`);
+    let f = '';
+    const n = big ? 24 : 16;
+    for (let i = 0; i < n; i++) {
+      const t = lerp(0.04, 0.97, i / (n - 1)) * L;
+      const u = (i % 2 ? 1 : -1) * (big ? 18 + FR() * 14 : 26 + FR() * 10);
+      const b = at(t, u);
+      const h = big ? lerp(70, 150, FR()) * (0.6 + 0.6 * (1 - t / L)) : lerp(50, 120, FR()) * (0.5 + 0.7 * (1 - t / L));
+      const lean = big ? 40 + FR() * 70 : (FR() - 0.5) * 30;
+      const lx = big ? 0 : (u > 0 ? 1 : -1) * 14;
+      const tg = tongue([b, [b[0] + lean * 0.3 + lx, b[1] - h * 0.4], [b[0] + lean * 0.7 + lx * 1.4 + (FR() - 0.5) * 20, b[1] - h * 0.75], [b[0] + lean + lx, b[1] - h]], (big ? 30 : 15) * (0.7 + FR() * 0.6), 60 + i);
+      f += `<path d="${tg.d}" fill="${['#ff4a0e', '#ff7a14', '#ffa22a'][i % 3]}" opacity="0.86"/>`;
+    }
+    for (let i = 0; i < (big ? n : 8); i++) {
+      const t = lerp(0.06, 0.95, FR()) * L;
+      const b = at(t, big ? (FR() - 0.5) * 44 : (FR() > 0.5 ? 1 : -1) * (22 + FR() * 6));
+      const h = (big ? 80 : 42) * (0.6 + FR() * 0.6);
+      const lean = big ? 20 + FR() * 30 : (FR() - 0.5) * 14;
+      const tg = tongue([b, [b[0] + lean * 0.4, b[1] - h * 0.5], [b[0] + lean, b[1] - h]], (big ? 18 : 11) * (0.7 + FR() * 0.5), 90 + i);
+      f += `<path d="${tg.d}" fill="${['#ffd040', '#ffe880', '#ffc030'][i % 3]}" opacity="0.9"/>`;
+    }
+    let fade = '';
+    if (big) {
+      const mid = art.id('fm');
+      art.def(`<mask id="${mid}" maskUnits="userSpaceOnUse" x="0" y="0" width="${art.W}" height="${art.H}"><rect x="0" y="0" width="${art.W}" height="${art.H}" fill="${art.lin([[0, '#000'], [0.06, '#fff']], 0, 0, 0, art.H, true)}"/></mask>`);
+      fade = ` mask="url(#${mid})"`;
+    }
+    art.add(`<g${fade}><g filter="${flameFilter(art, big ? 30 : 22, '0.02 0.035', big ? 12 : 9)}">${f}</g></g>`);
+    if (big) art.add(`<path d="${P([at(16, 0), at(L * 0.8, 0)])}" fill="none" stroke="#fff6d0" stroke-width="12" opacity="0.55" filter="${art.blur(4)}"/>`);
+    if (!big) {
+      const p = at(L, 0);
+      art.add(`<ellipse cx="${r1(p[0])}" cy="${r1(p[1] - 8)}" rx="60" ry="16" fill="#ff5a10" opacity="0.6" filter="${art.blur(8)}"/>`);
+      art.add(sparks(art, FR, 26, { x: p[0] - 100, y: 560, w: 200, h: 460 }, 0, ['#ffe08a', '#ffb030', '#ff6a14'], [2, 10]));
+    } else {
+      art.add(sparks(art, FR, 56, { x: 0, y: 0, w: 520, h: 380 }, 20, ['#ffe08a', '#ffb030', '#ff6a14'], [3, 14]));
+    }
+    art.layer('fig');
+  }
+}
+
 export const ART_FOES_B = {
   dragon: { w: 1024, h: 768, height: 6.0, frames: { idle: dragonFrame('idle'), attack: dragonFrame('attack') } },
+  ashwarden: { w: 800, h: 1040, height: 3.6, frames: { idle: ashwardenFrame('idle'), attack: ashwardenFrame('attack') } },
 };

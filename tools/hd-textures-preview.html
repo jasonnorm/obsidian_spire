@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HD Texture Sheet</title>
+<script type="importmap">{"imports":{"three":"../vendor/three.module.min.js","three/addons/":"../vendor/addons/"}}</script>
+<style>
+  :root {
+    --page: #0c0a09;
+    --panel: #16120f;
+    --rule: #2c241d;
+    --label: #ddd0bc;
+    --muted: #8f7c66;
+    --accent: #ffb347;
+    --ok: #7ddc8f;
+    --bad: #ff6a55;
+    --sky-top: #1a1530;
+    --sky-mid: #5a3a52;
+    --sky-low: #c0704a;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--page); }
+  body {
+    margin: 0;
+    padding: 20px 16px 48px;
+    color: var(--label);
+    font: 12px/1.45 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h2 { margin: 30px 0 10px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
+  p.note { margin: 0; color: var(--muted); max-width: 100ch; }
+  a { color: var(--accent); }
+  canvas { display: block; max-width: 100%; }
+  #report { margin: 12px 0 0; padding: 10px 12px; background: var(--panel); border: 1px solid var(--rule); white-space: pre-wrap; max-width: 1200px; }
+  #report .ok { color: var(--ok); }
+  #report .bad { color: var(--bad); }
+  #report b { color: var(--accent); font-weight: 600; }
+  .timings { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 18px; margin: 6px 0; }
+  .sheet { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  .card { background: var(--panel); border: 1px solid var(--rule); padding: 8px; max-width: 100%; }
+  .card h3 { margin: 0 0 6px; font-size: 13px; color: var(--accent); font-weight: 600; }
+  .card h3 small { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+  .cap { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  .sky { background: linear-gradient(var(--sky-top) 0%, var(--sky-mid) 45%, var(--sky-low) 100%); }
+  .backdrop-wrap { border: 1px solid var(--rule); overflow-x: auto; }
+  .backdrop-wrap canvas { width: 100%; height: auto; }
+  .only canvas { image-rendering: auto; }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; HD textures</h1>
+  <p class="note">Procedural textures for the modern first-person mode, from <code>js/fp/hd/textures-hd.js</code>. Each card shows the colour map tiled 2&times;2 (scaled to fit, so seams would show at the middle cross), the normal map, the emissive map where there is one, and the texture on a sphere and a plane lit by a moving torch and a low dusk sun. Add <code>?only=name</code> to see one texture at 1:1, or <code>?no3d</code> to skip WebGL.</p>
+  <div id="report">Generating&hellip;</div>
+  <div id="main"></div>
+
+<script type="module">
+import * as THREE from 'three';
+import { HD_SPECS, makeHD, makeHDBackdrop } from '../js/fp/hd/textures-hd.js';
+
+const params = new URLSearchParams(location.search);
+const ONLY = params.get('only');
+const NO3D = params.has('no3d');
+const report = document.getElementById('report');
+const main = document.getElementById('main');
+const names = Object.keys(HD_SPECS);
+
+const el = (tag, attrs = {}, ...kids) => {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v; else if (k === 'style') e.style.cssText = v; else e.setAttribute(k, v);
+  }
+  for (const k of kids) e.append(k);
+  return e;
+};
+
+// Let the page paint "Generating..." before the heavy synchronous work.
+await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 30)));
+
+/* ---------------------------------------------------------------- generate */
+const times = {};
+const tAll = performance.now();
+for (const n of names) {
+  const t0 = performance.now();
+  makeHD(n);
+  times[n] = performance.now() - t0;
+}
+const tTex = performance.now() - tAll;
+const tb0 = performance.now();
+const backdrop = makeHDBackdrop();
+const tBack = performance.now() - tb0;
+const tTotal = performance.now() - tAll;
+
+// cache: a second call must return the same objects, instantly
+const tc0 = performance.now();
+let cacheSame = true;
+for (const n of names) if (makeHD(n) !== makeHD(n)) cacheSame = false;
+cacheSame = cacheSame && makeHDBackdrop() === backdrop;
+const tCache = performance.now() - tc0;
+
+/* ---------------------------------------------------------------- checks */
+const pix = (cv) => cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+function fnv(data) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < data.length; i += 1) { h ^= data[i]; h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+// Seam score: mean colour step across the wrap edge divided by the mean step
+// between neighbouring interior columns (rows). About 1 means seamless.
+function seam(cv) {
+  const w = cv.width; const h = cv.height; const d = pix(cv);
+  const at = (x, y, c) => d[(y * w + x) * 4 + c];
+  let edgeX = 0; let inX = 0; let edgeY = 0; let inY = 0;
+  for (let y = 0; y < h; y++) for (let c = 0; c < 3; c++) {
+    edgeX += Math.abs(at(w - 1, y, c) - at(0, y, c));
+    for (let x = 0; x < w - 1; x += 7) inX += Math.abs(at(x + 1, y, c) - at(x, y, c));
+  }
+  for (let x = 0; x < w; x++) for (let c = 0; c < 3; c++) {
+    edgeY += Math.abs(at(x, h - 1, c) - at(x, 0, c));
+    for (let y = 0; y < h - 1; y += 7) inY += Math.abs(at(x, y + 1, c) - at(x, y, c));
+  }
+  const nx = Math.ceil((w - 1) / 7); const ny = Math.ceil((h - 1) / 7);
+  return [edgeX / (inX / nx), edgeY / (inY / ny)];
+}
+function backdropSeam(cv) {
+  const w = cv.width; const h = cv.height; const d = pix(cv);
+  let edge = 0; let inner = 0; let rows = 0;
+  for (let y = 0; y < h; y++) {
+    const a = (y * w + w - 1) * 4; const b = (y * w) * 4;
+    for (let c = 0; c < 4; c++) edge += Math.abs(d[a + c] - d[b + c]);
+    for (let x = 0; x < w - 1; x += 31) for (let c = 0; c < 4; c++) inner += Math.abs(d[(y * w + x + 1) * 4 + c] - d[(y * w + x) * 4 + c]);
+    rows++;
+  }
+  return edge / (inner / Math.ceil((w - 1) / 31));
+}
+
+const hashes = {};
+for (const n of names) {
+  const t = makeHD(n);
+  hashes[n] = [fnv(pix(t.map)), fnv(pix(t.normal)), t.emissive ? fnv(pix(t.emissive)) : 0].join('.');
+}
+hashes.backdrop = String(fnv(pix(backdrop)));
+
+const seams = {};
+for (const n of names) if (HD_SPECS[n].tile) seams[n] = seam(makeHD(n).map);
+const bdSeam = backdropSeam(backdrop);
+
+function writeReport(extra = '') {
+  const budget = tTotal < 3000;
+  const rows = names.map((n) => `<span>${n.padEnd(12, ' ')}${times[n].toFixed(0).padStart(5, ' ')} ms</span>`).join('');
+  const seamRows = Object.entries(seams).map(([n, [sx, sy]]) => {
+    const ok = sx < 1.6 && sy < 1.6;
+    return `<span class="${ok ? 'ok' : 'bad'}">${n.padEnd(12, ' ')}${sx.toFixed(2)} / ${sy.toFixed(2)}</span>`;
+  }).join('');
+  report.innerHTML = `<b>Generation</b>  all ${names.length} textures: <b>${tTex.toFixed(0)} ms</b>   backdrop: <b>${tBack.toFixed(0)} ms</b>   total: <b>${tTotal.toFixed(0)} ms</b>  <span class="${budget ? 'ok' : 'bad'}">${budget ? 'within' : 'over'} the 3000 ms budget</span>
+<div class="timings">${rows}</div><b>Cache</b>  second makeHD() for every name returned the same objects: <span class="${cacheSame ? 'ok' : 'bad'}">${cacheSame ? 'yes' : 'NO'}</span> (${tCache.toFixed(2)} ms)
+<b>Seams</b>  wrap-edge step / interior step, x / y (about 1 = seamless):
+<div class="timings">${seamRows}<span class="${bdSeam < 1.6 ? 'ok' : 'bad'}">${'backdrop'.padEnd(12, ' ')}${bdSeam.toFixed(2)}</span></div>${extra}`;
+}
+writeReport('<b>Determinism</b>  re-running a fresh copy of the module&hellip;');
+
+/* ---------------------------------------------------------------- layout */
+function tiled(cv, nx, ny, displayW) {
+  const c = el('canvas');
+  c.width = cv.width * nx;
+  c.height = cv.height * ny;
+  const g = c.getContext('2d');
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) g.drawImage(cv, i * cv.width, j * cv.height);
+  if (displayW) c.style.width = `${displayW}px`;
+  return c;
+}
+function shown(cv, displayW) {
+  const c = el('canvas');
+  c.width = cv.width;
+  c.height = cv.height;
+  c.getContext('2d').drawImage(cv, 0, 0);
+  if (displayW) c.style.width = `${displayW}px`;
+  return c;
+}
+function fig(canvas, cap) {
+  return el('div', {}, canvas, el('div', { class: 'cap' }, cap));
+}
+
+const views = [];
+if (ONLY) {
+  const t = makeHD(ONLY);
+  const s = HD_SPECS[ONLY];
+  const sec = el('div', { class: 'only' });
+  sec.append(el('h2', {}, `${ONLY} at 1:1`));
+  const row = el('div', { class: 'row' });
+  row.append(fig(s.tile ? tiled(t.map, 2, 2) : shown(t.map), s.tile ? 'map, tiled 2x2, 1:1' : 'map, 1:1'));
+  row.append(fig(shown(t.normal), 'normal, 1:1'));
+  if (t.emissive) row.append(fig(shown(t.emissive), 'emissive, 1:1'));
+  sec.append(row);
+  main.append(sec);
+} else {
+  main.append(el('h2', {}, 'Mountain backdrop'));
+  const bw = el('div', { class: 'backdrop-wrap sky' });
+  bw.append(shown(backdrop));
+  main.append(bw, el('div', { class: 'cap' }, `${backdrop.width}x${backdrop.height}, over a stand-in dusk sky`));
+  // seam crop: right edge followed by left edge, at half scale
+  const seamC = el('canvas');
+  seamC.width = 2048; seamC.height = 768;
+  const sg = seamC.getContext('2d');
+  sg.drawImage(backdrop, 3072, 0, 1024, 768, 0, 0, 1024, 768);
+  sg.drawImage(backdrop, 0, 0, 1024, 768, 1024, 0, 1024, 768);
+  seamC.style.width = '1024px';
+  const sw = el('div', { class: 'backdrop-wrap sky', style: 'width:max-content;max-width:100%;margin-top:8px' });
+  sw.append(seamC);
+  main.append(sw, el('div', { class: 'cap' }, 'seam check: the last 1024 px followed by the first 1024 px (the join is in the middle)'));
+
+  main.append(el('h2', {}, 'Textures'));
+  const sheet = el('div', { class: 'sheet' });
+  main.append(sheet);
+  for (const n of names) {
+    const t = makeHD(n);
+    const s = HD_SPECS[n];
+    const [w, h] = s.size;
+    const card = el('div', { class: 'card' });
+    card.append(el('h3', {}, n, el('small', {}, `  ${w}x${h} · ${s.tile ? `tile ${s.metres} m` : `${s.metres} m wide, no tile`} · rough ${s.roughness} · metal ${s.metalness} · ${times[n].toFixed(0)} ms`)));
+    const row = el('div', { class: 'row' });
+    const dispW = n === 'runeband' ? 512 : 384;
+    if (s.tile) row.append(fig(tiled(t.map, 2, 2, dispW), 'map 2x2'));
+    else row.append(fig(shown(t.map, 256), 'map'));
+    const nW = n === 'runeband' ? 256 : 192;
+    const col = el('div', {});
+    col.append(fig(shown(t.normal, nW), 'normal'));
+    if (t.emissive) col.append(fig(shown(t.emissive, nW), 'emissive'));
+    row.append(col);
+    if (!NO3D) {
+      const v = el('canvas');
+      v.width = 320; v.height = 240;
+      v.style.width = '320px';
+      row.append(fig(v, 'lit: torch + dusk sun'));
+      views.push({ name: n, canvas: v, card });
+    }
+    card.append(row);
+    sheet.append(card);
+  }
+}
+
+/* ---------------------------------------------------------------- 3D */
+if (views.length) {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(1);
+  renderer.setSize(320, 240, false);
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const camera = new THREE.PerspectiveCamera(42, 320 / 240, 0.1, 50);
+  camera.position.set(0, 2.1, 4.3);
+  camera.lookAt(0, 0.55, 0);
+  const sphereG = new THREE.SphereGeometry(0.85, 64, 40);
+  const planeG = new THREE.PlaneGeometry(5, 5);
+  const doorG = new THREE.PlaneGeometry(1.6, 2.4);
+  const tex = (cv, srgb, s) => {
+    const t = new THREE.CanvasTexture(cv);
+    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.anisotropy = 8;
+    if (s.tile) { t.wrapS = t.wrapT = THREE.RepeatWrapping; }
+    return t;
+  };
+  for (const v of views) {
+    const s = HD_SPECS[v.name];
+    const t = makeHD(v.name);
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#141018');
+    scene.fog = new THREE.Fog('#141018', 7, 14);
+    const mk = (rep) => {
+      const map = tex(t.map, true, s); const normal = tex(t.normal, false, s);
+      const em = t.emissive ? tex(t.emissive, true, s) : null;
+      for (const x of [map, normal, em]) if (x && s.tile) x.repeat.set(rep[0], rep[1]);
+      return new THREE.MeshStandardMaterial({
+        map, normalMap: normal, roughness: s.roughness, metalness: s.metalness,
+        emissiveMap: em, emissive: em ? new THREE.Color('#ffffff') : new THREE.Color('#000000'), emissiveIntensity: em ? 1.4 : 0,
+      });
+    };
+    // plane: one tile per `metres`, so the scale is the in-game one
+    const rep = s.tile ? 5 / s.metres : 1;
+    const plane = new THREE.Mesh(v.name === 'door' ? doorG : planeG, mk(v.name === 'runeband' ? [rep, rep * 4] : [rep, rep]));
+    if (v.name === 'door') plane.position.set(0, 1.2, -1.2);
+    else plane.rotation.x = -Math.PI / 2;
+    scene.add(plane);
+    const sphere = new THREE.Mesh(sphereG, mk(v.name === 'runeband' ? [1, 2] : [2, 1]));
+    sphere.position.set(v.name === 'door' ? 1.3 : 0.2, 0.85, 0.3);
+    scene.add(sphere);
+    scene.add(new THREE.HemisphereLight('#7c86c0', '#3a2a1c', 0.45));
+    const sun = new THREE.DirectionalLight('#ffb27a', 1.6);
+    sun.position.set(-6, 2.2, 2);
+    scene.add(sun);
+    const torch = new THREE.PointLight('#ffa860', 14, 9, 1.6);
+    scene.add(torch);
+    const flame = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), new THREE.MeshBasicMaterial({ color: '#ffd8a0' }));
+    scene.add(flame);
+    v.scene = scene; v.torch = torch; v.flame = flame; v.sphere = sphere;
+    v.ctx = v.canvas.getContext('2d');
+  }
+  const visible = new Set(views);
+  const io = new IntersectionObserver((ents) => {
+    for (const e of ents) { const v = views.find((q) => q.card === e.target); if (e.isIntersecting) visible.add(v); else visible.delete(v); }
+  });
+  for (const v of views) io.observe(v.card);
+  let first = true;
+  const t0 = performance.now();
+  const frame = () => {
+    const t = (performance.now() - t0) / 1000;
+    for (const v of first ? views : visible) {
+      const a = t * 0.9 + views.indexOf(v) * 0.7;
+      v.torch.position.set(Math.cos(a) * 1.9, 1.15 + Math.sin(t * 1.3) * 0.25, Math.sin(a) * 1.6 + 0.4);
+      v.flame.position.copy(v.torch.position);
+      v.torch.intensity = 14 * (0.92 + Math.sin(t * 13 + a) * 0.05 + Math.sin(t * 7.3) * 0.04);
+      v.sphere.rotation.y = t * 0.15;
+      renderer.render(v.scene, camera);
+      v.ctx.drawImage(renderer.domElement, 0, 0);
+    }
+    first = false;
+    requestAnimationFrame(frame);
+  };
+  frame();
+  document.body.dataset.rendered = '1';
+}
+
+/* ---------------------------------------------------------------- determinism */
+// A second, independent copy of the module must produce identical pixels.
+const tr0 = performance.now();
+const again = await import('../js/fp/hd/textures-hd.js?determinism-check');
+let same = 0;
+const diffs = [];
+for (const n of names) {
+  const t = again.makeHD(n);
+  const hsh = [fnv(pix(t.map)), fnv(pix(t.normal)), t.emissive ? fnv(pix(t.emissive)) : 0].join('.');
+  if (hsh === hashes[n]) same++; else diffs.push(n);
+}
+const bdSame = String(fnv(pix(again.makeHDBackdrop()))) === hashes.backdrop;
+const tRe = performance.now() - tr0;
+const det = diffs.length === 0 && bdSame;
+writeReport(`<b>Determinism</b>  a fresh module copy gave identical pixels for ${same}/${names.length} textures and ${bdSame ? 'the' : 'NOT the'} backdrop: <span class="${det ? 'ok' : 'bad'}">${det ? 'deterministic' : `differs: ${diffs.join(', ')}`}</span> (warm re-run incl. hashing ${tRe.toFixed(0)} ms)`);
+document.body.dataset.done = '1';
+window.HD_REPORT = { times, tTex, tBack, tTotal, cacheSame, seams, bdSeam, det };
+</script>
+</body>
+</html>
