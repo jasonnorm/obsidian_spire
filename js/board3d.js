@@ -681,8 +681,24 @@ export class Board3D {
     }
   }
 
+  setPaused(on) {
+    this.paused = on;
+    if (on) {
+      // Finish any piece still in motion so nothing waits on a hidden board.
+      for (const tw of this.tweens) { tw.obj.position.copy(tw.to); tw.obj.position.y = 0; tw.resolve(); }
+      this.tweens = [];
+    } else this.resize();
+  }
+
   movePawn(pid, path, { teleport = false, drift = false } = {}, onStep) {
     const pawn = this.pawns[pid];
+    if (this.paused) {
+      const otherId = pid === 'p' ? 'r' : 'p';
+      this.pawnAt[pid] = path[path.length - 1];
+      pawn.position.copy(this.slotPosition(pid, this.pawnAt[pid], this.pawnAt[otherId]));
+      this.pawns[otherId].position.copy(this.slotPosition(otherId, this.pawnAt[otherId], this.pawnAt[pid]));
+      return Promise.resolve();
+    }
     const otherId = pid === 'p' ? 'r' : 'p';
     return new Promise((resolve) => {
       const steps = teleport ? [path[path.length - 1]] : path.slice(1);
@@ -803,6 +819,7 @@ export class Board3D {
   }
 
   frame() {
+    if (this.paused) return;
     const now = performance.now();
     const t = this.clock.getElapsedTime();
     // Tweens.

@@ -33,6 +33,7 @@
   --f-story: "IM Fell English", "Iowan Old Style", Georgia, serif;
   --f-body: "Alegreya Sans", "Gill Sans", "Trebuchet MS", sans-serif;
   --f-device: "VT323", "Courier New", monospace;
+  --f-pixel: "Press Start 2P", "VT323", "Courier New", monospace;
   --gutter-l: max(16px, env(safe-area-inset-left, 0px));
   --gutter-r: max(16px, env(safe-area-inset-right, 0px));
   --mood: var(--ember);
@@ -889,6 +890,125 @@ kbd {
 body.in-menu .topbar .top-actions .tb-btn:not(#btn-sound):not(#btn-rules) { visibility: hidden; }
 
 /* ---------------------------------------------------------------- narrow */
+/* ---------------------------------------------------------------- Warden's eye (first person)
+   The 3D view is drawn at about 300 lines and scaled up with hard pixels; the HUD uses the
+   same sixteen EGA colours: black panels, grey bevels, yellow and white type. */
+.fp-canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; background: #000; }
+.fp-hud {
+  --fp-px: 2px;
+  --ega-black: #000000;
+  --ega-grey: #555555;
+  --ega-light: #aaaaaa;
+  --ega-white: #ffffff;
+  --ega-yellow: #ffff55;
+  --ega-sky: #55aaff;
+  --ega-red: #aa0000;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  font-family: var(--f-pixel);
+  color: var(--ega-white);
+}
+.fp-hud > * { position: absolute; }
+.fp-banner {
+  left: 50%;
+  top: 10px;
+  transform: translateX(-50%);
+  display: grid;
+  justify-items: center;
+  gap: 5px;
+  padding: 7px 12px 6px;
+  max-width: calc(100% - 24px);
+  background: var(--ega-black);
+  border: 2px solid var(--ega-light);
+  box-shadow: 0 0 0 2px var(--ega-black), 0 0 0 4px var(--ega-grey);
+  text-align: center;
+}
+.fp-banner b { font-weight: 400; font-size: 11px; line-height: 1.2; color: var(--ega-yellow); letter-spacing: 0.04em; }
+.fp-banner small { font-size: 8px; color: var(--ega-sky); }
+.fp-compass, .fp-automap {
+  right: 12px;
+  image-rendering: pixelated;
+  border: 2px solid var(--ega-light);
+  box-shadow: 0 0 0 2px var(--ega-black), 0 0 0 4px var(--ega-grey);
+  background: var(--ega-black);
+}
+.fp-compass { top: 12px; width: 176px; height: 22px; }
+.fp-automap { top: 48px; width: 120px; height: 120px; }
+.fp-roads {
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  pointer-events: auto;
+  max-width: calc(100% - 24px);
+}
+.fp-road-label {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-width: 0;
+  width: min(330px, 52vw);
+  padding: 7px 10px;
+  background: var(--ega-black);
+  border: 2px solid var(--ega-light);
+  box-shadow: 0 0 0 2px var(--ega-black), 0 0 0 4px var(--ega-grey);
+  text-align: center;
+}
+.fp-road-label b { font-weight: 400; font-size: 10px; color: var(--ega-yellow); line-height: 1.3; overflow-wrap: anywhere; }
+.fp-road-label small { font-size: 7px; color: var(--ega-light); line-height: 1.5; }
+.fp-btn {
+  font-family: var(--f-pixel);
+  font-size: 11px;
+  color: var(--ega-white);
+  background: var(--ega-grey);
+  border: 2px solid;
+  border-color: var(--ega-white) var(--ega-black) var(--ega-black) var(--ega-white);
+  box-shadow: 0 0 0 2px var(--ega-black);
+  min-width: 36px;
+  min-height: 36px;
+  padding: 4px 8px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.fp-btn:hover { background: #0055aa; }
+.fp-btn:active { border-color: var(--ega-black) var(--ega-white) var(--ega-white) var(--ega-black); }
+.fp-btn:focus-visible { outline: 2px solid var(--ega-yellow); outline-offset: 2px; }
+.fp-ride { background: #aa5500; color: var(--ega-yellow); padding-inline: 14px; }
+.fp-ride:hover { background: #aa0000; }
+.fp-pad {
+  left: 14px;
+  bottom: 14px;
+  display: grid;
+  grid-template-columns: repeat(3, 40px);
+  gap: 5px;
+  pointer-events: auto;
+}
+.fp-pad .fp-btn { min-height: 40px; padding: 0; }
+.fp-pad .fp-leave { grid-column: 1 / -1; min-height: 32px; background: #550000; font-size: 9px; }
+.fp-hand {
+  right: 0;
+  bottom: 0;
+  width: calc(96 * var(--fp-px));
+  height: calc(96 * var(--fp-px));
+  image-rendering: pixelated;
+}
+.fp-fade { inset: 0; background: #000; opacity: 0; }
+body.fp-mode .board-hint { display: none; }
+body.fp-mode .board-wrap { border-color: #555555; box-shadow: 0 0 0 2px #000, inset 0 0 0 2px #aaaaaa; }
+.tb-eye[aria-pressed="true"] { border-color: #55aaff; color: #55aaff; }
+@media (max-width: 860px) {
+  .fp-compass { width: 132px; height: 17px; }
+  .fp-automap { top: 40px; width: 84px; height: 84px; }
+  .fp-banner { top: 40px; }
+  .fp-banner b { font-size: 9px; }
+  .fp-road-label { width: min(240px, 50vw); }
+  .fp-pad { grid-template-columns: repeat(3, 36px); }
+  .fp-pad .fp-btn { min-height: 36px; }
+}
+
 /* Narrow cards: each label takes its own line above its two peg rows. */
 @container (max-width: 470px) {
   .lg-row { grid-template-columns: auto auto minmax(1.8em, 1fr); column-gap: 8px; }

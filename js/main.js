@@ -7,6 +7,7 @@ import { Ledger, GloomTrack } from './ledger.js';
 import * as audio from './audio.js';
 import { Game, newState } from './engine.js';
 import { CHAPTERS, NODE_BY_ID, RELIC_BY_ID, SHARDS } from './data.js';
+import { FirstPersonView } from './fp/view.js';
 
 const $ = (s) => document.querySelector(s);
 const ROMAN = ['I', 'II', 'III', 'IV'];
@@ -21,6 +22,8 @@ const store = {
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let board = null;
+let fpv = null;
+let view = 'board';
 let con = null;
 let ledgers = {};
 let gloomTrack = null;
@@ -29,7 +32,7 @@ let gen = 0;
 let moveState = null;
 let memorySave = null;
 let webglOK = true;
-const prefs = { muted: false, speed: 1, ...(store.get(PREFS_KEY) || {}) };
+const prefs = { muted: false, speed: 1, view: 'board', ...(store.get(PREFS_KEY) || {}) };
 const SPEEDS = [
   { v: 1, label: 'Normal' },
   { v: 0.55, label: 'Brisk' },
@@ -46,6 +49,8 @@ function makeIO(myGen) {
   const alive = () => myGen === gen;
   const frozen = () => new Promise(() => {});
   return {
+    firstPerson: () => view === 'fp' && !!fpv,
+    explore(p, opts) { return alive() ? fpv.explore(opts) : frozen(); },
     update(g) { if (alive()) syncUI(g); },
     async show(p, evt) {
       if (!alive()) return frozen();
@@ -53,12 +58,14 @@ function makeIO(myGen) {
       if (line) addChronicle(p ? p.id : null, line, evt.tone);
       const rival = !!p && p.id === 'r';
       const shown = rival && (!evt.mood || evt.mood === 'idle') ? { ...evt, mood: 'rival' } : evt;
+      if (view === 'fp') fpv?.stage(evt, p);
       await con.display(shown, { rival });
       if (!alive()) return frozen();
     },
     async ask(p, prompt) {
       if (!alive()) return frozen();
       setHint(promptHint(prompt));
+      if (view === 'fp' && prompt.battle) fpv?.stage(prompt, p);
       const k = await con.ask(prompt);
       setHint('');
       if (!alive()) return frozen();
@@ -82,7 +89,11 @@ function makeIO(myGen) {
         const here = NODE_BY_ID[p.node];
         const stayText = here.type === 'wilds' ? 'make camp and forage' : here.type === 'spire' ? 'stay at the Spire' : `stay at ${here.name}`;
         const msg = `Choose your road: click a glowing space${p.relics.steed ? ' (your steed reaches two roads)' : ''}, or press STAY to ${stayText}.`;
+        fpv?.ensurePose(p);
+        const cancelFp = fpv ? fpv.chooseRoad(p, options, (to) => finish({ to })) : () => {};
         const finish = (choice) => {
+          if (!moveState) return;
+          cancelFp();
           moveState = null;
           board?.highlight(null);
           renderRoads(null);
@@ -98,8 +109,12 @@ function makeIO(myGen) {
     },
     async movePawn(p, path, opts = {}) {
       if (!alive()) return frozen();
-      if (board) await board.movePawn(p.id, path, opts, () => audio.play('step'));
-      else await wait(200);
+      const jobs = [];
+      if (board) jobs.push(board.movePawn(p.id, path, opts, view === 'fp' ? null : () => audio.play('step')));
+      if (fpv && p.human) jobs.push(fpv.ride(path, opts));
+      if (!jobs.length) jobs.push(wait(200));
+      await Promise.all(jobs);
+      if (fpv && game) fpv.sync(game);
     },
     kindle(p, seq) { return alive() ? con.kindle(seq) : frozen(); },
     async aiKindle(p, seq, ok) { if (alive()) await con.showAIKindle(seq, ok); },
@@ -136,6 +151,7 @@ function syncUI(g) {
     board.syncBarrows(s);
     board.setGloom(s.gloom, s.gloomMax);
   }
+  fpv?.sync(g);
   const cur = s.players[s.turn];
   if (cur) con.setShards(cur);
 }
@@ -304,6 +320,10 @@ function attachGame(state, log) {
   resetTable();
   for (const e of log || []) addChronicle(e.who, e.text, e.tone);
   board?.placePawns(state.players);
+  if (fpv) {
+    fpv.reset(state.players[0]);
+    fpv.seed = state.seed;
+  }
   syncUI(game);
   return myGen;
 }
@@ -316,6 +336,7 @@ async function startNew(i) {
   show(null);
   board?.setTitleMode(false);
   board?.resetView(true);
+  setView(prefs.view === 'fp' ? 'fp' : 'board', { remember: false });
   await bootSequence();
   if (myGen !== gen) return;
   addChronicle(null, `Chapter ${ROMAN[i]}: ${CHAPTERS[i].title}. The Gloom stands at ${state.gloom}.`, 'magic');
@@ -330,6 +351,7 @@ async function continueSaved() {
   show(null);
   board?.setTitleMode(false);
   board?.resetView(true);
+  setView(prefs.view === 'fp' ? 'fp' : 'board', { remember: false });
   await bootSequence();
   if (myGen !== gen) return;
   addChronicle(null, `The quest resumes in round ${sv.state.round}.`, 'magic');
@@ -383,9 +405,63 @@ function toTitle() {
   con.endSocketMode?.();
   con.setTurn(null);
   con.render({ glyph: 'spire', led: null, text: 'The Spire waits.', mood: 'idle' });
+  fpv?.reset(null);
+  setView('board', { remember: false });
   board?.setTitleMode(true);
   renderTitle();
   show('#title-screen');
+}
+
+// ---------------------------------------------------------------------------
+// Board view and Warden's eye
+// ---------------------------------------------------------------------------
+function setView(mode, { remember = true } = {}) {
+  if (mode === 'fp' && !fpv) return;
+  if (fpv?.mode === 'dungeon' && mode !== 'fp') return;
+  view = mode;
+  if (remember) { prefs.view = mode; store.set(PREFS_KEY, prefs); }
+  const fp = mode === 'fp';
+  document.body.classList.toggle('fp-mode', fp);
+  $('#board').hidden = fp;
+  $('#fp').hidden = !fp;
+  $('#fp-hud').hidden = !fp;
+  $('#node-tip').hidden = true;
+  board?.setPaused(fp);
+  fpv?.setActive(fp);
+  const b = $('#btn-view-mode');
+  b.textContent = fp ? 'Board view' : "Warden's eye";
+  b.setAttribute('aria-pressed', String(fp));
+  $('#btn-view').textContent = fp ? 'Look ahead' : 'Recentre';
+  if (fp && game) {
+    fpv.sync(game);
+    fpv.ensurePose(game.s.players[0]);
+  }
+}
+
+function toggleView() {
+  if (!game) return;
+  if (fpv?.mode === 'dungeon') {
+    con.render({ glyph: 'barrow', text: 'Climb out first: the board cannot show the inside of a barrow or the Spire.', mood: 'warn' });
+    return;
+  }
+  audio.play('key');
+  setView(view === 'fp' ? 'board' : 'fp');
+}
+
+function fpSay(kind) {
+  const text = kind === 'tomb'
+    ? 'The tomb lies quiet. Nothing here is still yours to take.'
+    : 'Rubble and a sealed stair. Clear this floor before you climb.';
+  con.render({ glyph: kind === 'tomb' ? 'barrow' : 'sealed', led: null, text, mood: 'idle' });
+}
+
+function spireProxy() {
+  return {
+    setMood: (c, m) => { board?.setMood(c, m); fpv?.setMood(c, m); },
+    pulse: () => { board?.pulse(); fpv?.pulse(); },
+    flare: () => { board?.flare(); fpv?.flare(); },
+    crownNote: (s) => { board?.crownNote(s); fpv?.crownNote(s); },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -394,6 +470,7 @@ function toTitle() {
 function applyPrefs() {
   audio.setMuted(prefs.muted);
   con.speed = prefs.speed;
+  if (fpv) fpv.speed = prefs.speed;
   const sb = $('#btn-sound');
   sb.textContent = prefs.muted ? 'Sound off' : 'Sound on';
   sb.setAttribute('aria-pressed', String(!prefs.muted));
@@ -416,7 +493,6 @@ async function boot(hotData) {
   try {
     board = new Board3D($('#board'), { onNodeClick, onNodeHover });
     await board.init();
-    con.bindSpire(board);
     board.placePawns(demo.players);
     board.setTitleMode(true);
     board.start();
@@ -427,12 +503,24 @@ async function boot(hotData) {
     $('#board-wrap').classList.add('no-webgl');
     $('#board-fallback').hidden = false;
   }
+  try {
+    fpv = new FirstPersonView($('#fp'), $('#fp-hud'), { say: fpSay });
+    fpv.speed = prefs.speed;
+  } catch (err) {
+    console.error(err);
+    fpv = null;
+    $('#btn-view-mode').hidden = true;
+  }
+  con.bindSpire(spireProxy());
   con.render({ glyph: 'spire', led: null, text: 'The Spire waits.', mood: 'idle' });
 
   document.addEventListener('keydown', (e) => {
     if (document.body.classList.contains('in-menu') || $('#rules').open) return;
+    if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.metaKey && !e.altKey) { toggleView(); e.preventDefault(); return; }
+    if (view === 'fp' && fpv?.handleKey(e)) { e.preventDefault(); return; }
     if (con.handleKey(e)) e.preventDefault();
   });
+  $('#btn-view-mode').addEventListener('click', () => toggleView());
   $('#btn-sound').addEventListener('click', () => { audio.unlock(); prefs.muted = !prefs.muted; store.set(PREFS_KEY, prefs); applyPrefs(); });
   $('#btn-speed').addEventListener('click', () => {
     const i = SPEEDS.findIndex((s) => s.v === prefs.speed);
@@ -440,7 +528,7 @@ async function boot(hotData) {
     store.set(PREFS_KEY, prefs);
     applyPrefs();
   });
-  $('#btn-view').addEventListener('click', () => board?.resetView(true));
+  $('#btn-view').addEventListener('click', () => (view === 'fp' ? fpv?.faceSite() : board?.resetView(true)));
   $('#btn-rules').addEventListener('click', () => $('#rules').showModal());
   $('#btn-howto').addEventListener('click', () => $('#rules').showModal());
   $('#btn-rules-close').addEventListener('click', () => $('#rules').close());
@@ -457,7 +545,7 @@ async function boot(hotData) {
   renderTitle();
   show('#title-screen');
   window.claude?.hot?.snapshot?.(() => ({ save: savedGame() }));
-  window.__spire = { get game() { return game; }, board, con };
+  window.__spire = { get game() { return game; }, board, con, get fpv() { return fpv; }, setView };
 }
 
 const hot = window.claude?.hot;

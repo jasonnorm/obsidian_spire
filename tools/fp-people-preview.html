@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spire People Sprites</title>
+<style>
+  :root {
+    --page: #0d0a08;
+    --label: #c9a77a;
+    --muted: #7d6a55;
+    --rule: #2b221b;
+    --black: #000000;
+    --grey: #555555;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--page);
+    color: var(--label);
+    font: 13px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: #ffb347; }
+  h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: #ffb347; }
+  h2 small { color: var(--muted); font-weight: normal; letter-spacing: .04em; text-transform: none; }
+  p.note { margin: 0 0 20px; color: var(--muted); max-width: 80ch; }
+  #error { color: #ff5555; white-space: pre-wrap; }
+
+  .palette { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 24px; }
+  .swatch { width: 54px; font-size: 10px; color: var(--muted); text-align: center; }
+  .swatch i { display: block; height: 22px; border: 1px solid var(--rule); margin-bottom: 2px; }
+
+  section.sprite { border-top: 1px solid var(--rule); padding: 18px 0 22px; }
+  .frames { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .frame { display: flex; flex-direction: column; gap: 6px; }
+  .frame > b { font-weight: 600; letter-spacing: .08em; color: var(--label); }
+  .bgs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .bg { display: flex; align-items: flex-end; gap: 12px; padding: 10px; border: 1px solid var(--rule); }
+  .bg.black { background: var(--black); }
+  .bg.grey { background: var(--grey); }
+  figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  figcaption { font-size: 10px; color: var(--muted); }
+  .bg.grey figcaption { color: #1a1a1a; }
+  canvas { display: block; image-rendering: pixelated; }
+
+  .lineup { display: flex; align-items: flex-end; gap: 14px; padding: 12px; background: var(--grey); border: 1px solid var(--rule); overflow-x: auto; }
+  .lineup figure figcaption { color: #1a1a1a; }
+  .lineup.black { background: var(--black); }
+  .lineup.black figure figcaption { color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; first-person people</h1>
+  <p class="note" id="count">Loading&hellip;</p>
+  <p id="error"></p>
+  <div class="palette" id="palette"></div>
+  <div id="lineups"></div>
+  <div id="sheet"></div>
+
+<script type="module">
+  const errBox = document.getElementById('error');
+  const fail = (e) => { errBox.textContent = String(e && e.stack || e); window.__peopleError = String(e && e.message || e); };
+  window.addEventListener('error', (e) => fail(e.error || e.message));
+
+  try {
+    const { PALETTE, rowsToCanvas } = await import('../js/fp/palette.js');
+    const { PEOPLE_ART } = await import('../js/fp/sprites-people.js');
+
+    document.getElementById('palette').innerHTML = PALETTE.map((c, i) =>
+      `<div class="swatch"><i style="background:${c}"></i>${i.toString(16)} ${c}</div>`).join('');
+
+    const keys = Object.keys(PEOPLE_ART);
+    let frameCount = 0;
+    const sheet = document.getElementById('sheet');
+
+    // Lineup: every idle frame at one shared pixels-per-metre scale (people
+    // only; the hand has no world height), then everything at 2x.
+    const lineups = document.getElementById('lineups');
+    const addLineup = (title, cls, scaleOf) => {
+      const h = document.createElement('h2');
+      h.innerHTML = title;
+      const row = document.createElement('div');
+      row.className = `lineup ${cls}`;
+      for (const k of keys) {
+        const art = PEOPLE_ART[k];
+        const s = scaleOf(art);
+        if (!s) continue;
+        const cv = rowsToCanvas(art.frames.idle, 1);
+        cv.style.width = `${Math.round(art.w * s)}px`;
+        cv.style.height = `${Math.round(art.h * s)}px`;
+        const fig = document.createElement('figure');
+        fig.dataset.key = k;
+        fig.append(cv);
+        const cap = document.createElement('figcaption');
+        cap.textContent = k;
+        fig.append(cap);
+        row.append(fig);
+      }
+      lineups.append(h, row);
+      row.style.marginBottom = '24px';
+    };
+    // ~3 screen px per art px for a 1.75 m person
+    const ppm = (3 * 64) / 1.75;
+    addLineup('Lineup <small>idle, scaled to world height</small>', 'grey', (a) => a.height ? (ppm * a.height) / a.h : 0);
+    addLineup('Lineup <small>idle and gesture at 2x on black</small>', 'black', () => 2);
+
+    for (const key of keys) {
+      const art = PEOPLE_ART[key];
+      const sec = document.createElement('section');
+      sec.className = 'sprite';
+      sec.id = `sprite-${key}`;
+      sec.innerHTML = `<h2>${key} <small>${art.w}&times;${art.h} px &middot; ${art.height ? art.height + ' m' : 'screen overlay'} &middot; frames: ${Object.keys(art.frames).join(', ')}</small></h2>`;
+      const frames = document.createElement('div');
+      frames.className = 'frames';
+      for (const [fname, rows] of Object.entries(art.frames)) {
+        frameCount++;
+        const fr = document.createElement('div');
+        fr.className = 'frame';
+        fr.innerHTML = `<b>${fname}</b>`;
+        const bgs = document.createElement('div');
+        bgs.className = 'bgs';
+        for (const bg of ['black', 'grey']) {
+          const box = document.createElement('div');
+          box.className = `bg ${bg}`;
+          box.dataset.key = key; box.dataset.frame = fname; box.dataset.bg = bg;
+          for (const scale of [1, 3, 6]) {
+            const fig = document.createElement('figure');
+            fig.dataset.key = key; fig.dataset.frame = fname; fig.dataset.bg = bg; fig.dataset.scale = scale;
+            fig.append(rowsToCanvas(rows, scale));
+            const cap = document.createElement('figcaption');
+            cap.textContent = `${scale}x`;
+            fig.append(cap);
+            box.append(fig);
+          }
+          bgs.append(box);
+        }
+        fr.append(bgs);
+        frames.append(fr);
+      }
+      sec.append(frames);
+      sheet.append(sec);
+    }
+    // the 2x lineup also gets the gesture frames
+    const row2 = lineups.querySelectorAll('.lineup')[1];
+    for (const k of keys) {
+      const art = PEOPLE_ART[k];
+      if (!art.frames.attack) continue;
+      const cv = rowsToCanvas(art.frames.attack, 2);
+      const fig = document.createElement('figure');
+      fig.dataset.key = `${k}-attack`;
+      fig.append(cv);
+      const cap = document.createElement('figcaption');
+      cap.textContent = `${k} (gesture)`;
+      fig.append(cap);
+      row2.append(fig);
+    }
+
+    document.getElementById('count').textContent =
+      `${keys.length} sprites, ${frameCount} frames, each shown at 1x, 3x and 6x on black and on mid-grey (#555555). ` +
+      `Rows validated at module load.`;
+    window.__peopleReady = frameCount;
+  } catch (e) {
+    fail(e);
+  }
+</script>
+</body>
+</html>

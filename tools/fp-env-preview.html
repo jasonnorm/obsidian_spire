@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spire Environment Sheet</title>
+<style>
+  :root {
+    --page: #0d0a08;
+    --panel: #17120e;
+    --rule: #2b221b;
+    --label: #d8c8b0;
+    --muted: #8a765f;
+    --accent: #ffb347;
+    --ok: #7dff9a;
+    --bad: #ff5a4a;
+    --mid: #808080;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 20px 16px 48px;
+    background: var(--page);
+    color: var(--label);
+    font: 12px/1.45 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h2 { margin: 32px 0 10px; font-size: 13px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--rule); padding-bottom: 4px; }
+  p.note { margin: 0; color: var(--muted); max-width: 90ch; }
+  canvas { display: block; image-rendering: pixelated; }
+  .pal { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0 0; }
+  .pal span { display: inline-flex; align-items: flex-end; width: 44px; height: 30px; padding: 2px 3px; font-size: 9px; border: 1px solid var(--rule); }
+  #checks { margin: 12px 0 0; padding: 8px 10px; background: var(--panel); border: 1px solid var(--rule); white-space: pre-wrap; }
+  #checks .ok { color: var(--ok); }
+  #checks .bad { color: var(--bad); }
+
+  .props { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  .prop { background: var(--panel); border: 1px solid var(--rule); padding: 8px; }
+  .prop h3, .tex h3 { margin: 0 0 6px; font-size: 12px; color: var(--accent); font-weight: 600; }
+  .prop h3 small, .tex h3 small { color: var(--muted); font-weight: 400; }
+  .row { display: flex; gap: 6px; align-items: flex-end; }
+  .bg-black { background: #000; padding: 4px; }
+  .bg-grey { background: var(--mid); padding: 4px; }
+  .frame-label { font-size: 10px; color: var(--muted); margin: 6px 0 2px; }
+
+  .texs { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+  .tex { background: var(--panel); border: 1px solid var(--rule); padding: 8px; }
+  .tex .row { align-items: flex-start; flex-wrap: wrap; }
+  .tex .cap { font-size: 10px; color: var(--muted); margin-top: 2px; }
+
+  .backdrop-wrap { overflow-x: auto; border: 1px solid var(--rule); }
+  .backdrop { background: linear-gradient(#000055 0%, #000022 55%, #000 100%); width: max-content; }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; first-person environment</h1>
+  <p class="note">Props (1x and 4x, on black and on mid-grey), procedural textures (1x, 4x, and tiled 3&times;3 at 2x), and the horizon backdrop tiled twice at 2x.</p>
+  <div class="pal" id="pal"></div>
+  <div id="checks">Running checks&hellip;</div>
+
+  <h2>Props</h2>
+  <div class="props" id="props"></div>
+
+  <h2>Textures</h2>
+  <div class="texs" id="texs"></div>
+
+  <h2>Backdrop &middot; 1024&times;192, tiled twice at 2x</h2>
+  <div class="backdrop-wrap"><div class="backdrop" id="backdrop"></div></div>
+
+<script type="module">
+  import { PALETTE, PAL_RGB, rowsToCanvas } from '../js/fp/palette.js';
+  import { PROPS_ART } from '../js/fp/sprites-props.js';
+  import { TEXTURE_SPECS, makeTexture, makeBackdrop } from '../js/fp/textures.js';
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
+
+  // palette swatches
+  PALETTE.forEach((hex, i) => {
+    const s = el('span', '', i.toString(16));
+    s.style.background = hex;
+    s.style.color = i === 0 || i === 1 || i === 4 || i === 7 || i === 12 ? '#fff' : '#000';
+    $('pal').appendChild(s);
+  });
+
+  function scaled(src, scale, tilesX = 1, tilesY = 1) {
+    const c = document.createElement('canvas');
+    c.width = src.width * scale * tilesX;
+    c.height = src.height * scale * tilesY;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    for (let j = 0; j < tilesY; j++) for (let i = 0; i < tilesX; i++) {
+      g.drawImage(src, i * src.width * scale, j * src.height * scale, src.width * scale, src.height * scale);
+    }
+    return c;
+  }
+  const boxed = (cls, node) => { const b = el('div', cls); b.appendChild(node); return b; };
+
+  /* ---------------- props ---------------- */
+  for (const [key, def] of Object.entries(PROPS_ART)) {
+    const card = el('div', 'prop');
+    card.dataset.prop = key;
+    card.appendChild(el('h3', '', `${key} <small>${def.w}&times;${def.h} &middot; ${def.height} m</small>`));
+    for (const [frame, rows] of Object.entries(def.frames)) {
+      if (Object.keys(def.frames).length > 1) card.appendChild(el('div', 'frame-label', frame));
+      const row = el('div', 'row');
+      row.appendChild(boxed('bg-black', rowsToCanvas(rows, 1)));
+      row.appendChild(boxed('bg-grey', rowsToCanvas(rows, 1)));
+      row.appendChild(boxed('bg-black', rowsToCanvas(rows, 4)));
+      row.appendChild(boxed('bg-grey', rowsToCanvas(rows, 4)));
+      card.appendChild(row);
+    }
+    $('props').appendChild(card);
+  }
+
+  /* ---------------- textures ---------------- */
+  const results = [];
+  const palKey = new Set(PAL_RGB.map(([r, g, b]) => (r << 16) | (g << 8) | b));
+
+  function purity(cv, allowClear) {
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let bad = 0; let clear = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0 && allowClear) { clear++; continue; }
+      if (d[i + 3] !== 255 || !palKey.has((d[i] << 16) | (d[i + 1] << 8) | d[i + 2])) bad++;
+    }
+    return { bad, clear };
+  }
+
+  // Seam score: mean colour change across the wrap edge divided by the largest
+  // mean change across any interior column (row) boundary. A score at or below
+  // ~1 means the wrap is no harsher than a boundary inside the texture, so
+  // designed joints (plank gaps, block mortar) that land on the edge pass.
+  // Alpha counts, so the backdrop's ridge line is compared too.
+  function seam(cv) {
+    const { width: w, height: h } = cv;
+    const d = cv.getContext('2d').getImageData(0, 0, w, h).data;
+    const diff = (x0, y0, x1, y1) => {
+      const a = (y0 * w + x0) * 4; const b = (y1 * w + x1) * 4;
+      return Math.abs(d[a] - d[b]) + Math.abs(d[a + 1] - d[b + 1]) + Math.abs(d[a + 2] - d[b + 2]) + Math.abs(d[a + 3] - d[b + 3]);
+    };
+    const colB = (x0, x1) => { let s = 0; for (let y = 0; y < h; y++) s += diff(x0, y, x1, y); return s / h; };
+    const rowB = (y0, y1) => { let s = 0; for (let x = 0; x < w; x++) s += diff(x, y0, x, y1); return s / w; };
+    let maxX = 1e-6; for (let x = 0; x < w - 1; x++) maxX = Math.max(maxX, colB(x, x + 1));
+    let maxY = 1e-6; for (let y = 0; y < h - 1; y++) maxY = Math.max(maxY, rowB(y, y + 1));
+    return { x: colB(w - 1, 0) / maxX, y: rowB(h - 1, 0) / maxY };
+  }
+
+  function same(a, b) {
+    const da = a.getContext('2d').getImageData(0, 0, a.width, a.height).data;
+    const db = b.getContext('2d').getImageData(0, 0, b.width, b.height).data;
+    if (da.length !== db.length) return false;
+    for (let i = 0; i < da.length; i++) if (da[i] !== db[i]) return false;
+    return true;
+  }
+
+  for (const [name, spec] of Object.entries(TEXTURE_SPECS)) {
+    const t0 = performance.now();
+    const cv = makeTexture(name);
+    const ms = performance.now() - t0;
+    const p = purity(cv, false);
+    const s = seam(cv);
+    const det = same(cv, makeTexture(name));
+    const sizeOk = cv.width === spec.w && cv.height === spec.h;
+    results.push({ name, bad: p.bad, seamX: s.x, seamY: s.y, det, sizeOk, ms, tile: spec.tile });
+
+    const card = el('div', 'tex');
+    card.dataset.tex = name;
+    card.appendChild(el('h3', '', `${name} <small>${spec.w}&times;${spec.h}${spec.tile ? ' &middot; tiles' : ''}</small>`));
+    const row = el('div', 'row');
+    const c1 = el('div'); c1.appendChild(scaled(cv, 1)); c1.appendChild(el('div', 'cap', '1x'));
+    const c4 = el('div'); c4.appendChild(scaled(cv, 4)); c4.appendChild(el('div', 'cap', '4x'));
+    row.appendChild(c1); row.appendChild(c4);
+    if (spec.tile) {
+      const ct = el('div'); ct.appendChild(scaled(cv, 2, 3, 3)); ct.appendChild(el('div', 'cap', '3&times;3 at 2x'));
+      ct.dataset.tiled = name;
+      row.appendChild(ct);
+    }
+    card.appendChild(row);
+    $('texs').appendChild(card);
+  }
+
+  /* ---------------- backdrop ---------------- */
+  const bd = makeBackdrop();
+  const bdP = purity(bd, true);
+  const bdS = seam(bd);
+  // every column must be clear down to the ridge and solid from there on
+  let bdCols = 0;
+  {
+    const d = bd.getContext('2d').getImageData(0, 0, bd.width, bd.height).data;
+    for (let x = 0; x < bd.width; x++) {
+      let solid = false; let okCol = true;
+      for (let y = 0; y < bd.height; y++) {
+        const a = d[(y * bd.width + x) * 4 + 3];
+        if (a === 255) solid = true; else if (solid) okCol = false;
+      }
+      if (!solid || d[(0 * bd.width + x) * 4 + 3] !== 0) okCol = false;
+      if (!okCol) bdCols++;
+    }
+  }
+  $('backdrop').appendChild(scaled(bd, 2, 2, 1));
+
+  /* ---------------- report ---------------- */
+  const fmt = (v) => v.toFixed(2);
+  const lines = [];
+  let allOk = true;
+  for (const r of results) {
+    const seamOk = !r.tile || (r.seamX <= 1.15 && r.seamY <= 1.15);
+    const ok = r.bad === 0 && r.det && r.sizeOk && seamOk;
+    if (!ok) allOk = false;
+    lines.push(`<span class="${ok ? 'ok' : 'bad'}">${ok ? 'ok ' : 'BAD'}</span> ${r.name.padEnd(12)} off-palette ${String(r.bad).padStart(4)}  seam x ${fmt(r.seamX)} y ${fmt(r.seamY)}  deterministic ${r.det ? 'yes' : 'NO'}  ${r.ms.toFixed(1)} ms`);
+  }
+  const bdOk = bdP.bad === 0 && bdS.x <= 1.15 && bdCols === 0 && bd.width === 1024 && bd.height === 192;
+  if (!bdOk) allOk = false;
+  lines.push(`<span class="${bdOk ? 'ok' : 'bad'}">${bdOk ? 'ok ' : 'BAD'}</span> backdrop     off-palette ${String(bdP.bad).padStart(4)}  seam x ${fmt(bdS.x)}  clear pixels ${bdP.clear}  bad columns ${bdCols}`);
+  let propCount = 0; let frameCount = 0; let floating = [];
+  for (const [key, def] of Object.entries(PROPS_ART)) {
+    propCount++;
+    for (const [f, rows] of Object.entries(def.frames)) {
+      frameCount++;
+      if (!/[^.]/.test(rows[rows.length - 1]) && !key.startsWith('shard') && key !== 'torch') floating.push(`${key}.${f}`);
+    }
+  }
+  lines.push(`${propCount} props, ${frameCount} frames, all rows validated` + (floating.length ? `; empty bottom row: ${floating.join(', ')}` : ''));
+  $('checks').innerHTML = `<b class="${allOk ? 'ok' : 'bad'}">${allOk ? 'All texture checks pass' : 'Some checks failed'}</b>\n` + lines.join('\n');
+  window.__checks = { allOk, results, backdrop: { ...bdP, seam: bdS, badColumns: bdCols }, floating };
+  document.body.dataset.ready = '1';
+</script>
+</body>
+</html>

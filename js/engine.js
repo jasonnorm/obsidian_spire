@@ -123,6 +123,8 @@ export class Game {
   priceMult() { const g = this.s.gloom; return 1 + (g >= 7 ? 0.25 : 0) + (g >= 14 ? 0.25 : 0); }
   shardCount(p) { return SHARD_IDS.filter((s) => p.shards[s]).length; }
   isHuman(p) { return p.human && !this.allAI; }
+  // True when the human is playing through the first-person view.
+  fp(p) { return this.isHuman(p) && !!this.io.firstPerson?.(); }
 
   clamp(p) {
     for (const k of ['company', 'coin', 'provisions']) p[k] = Math.max(0, Math.min(LIMITS[k], Math.round(p[k])));
@@ -485,6 +487,7 @@ export class Game {
     const key = await this.ask(p, { kind: 'enterBarrow', node: n.id, depth, glyph: 'barrow', text, options: ['yes', 'no'] });
     if (key !== 'yes') return;
     if (!(await this.barrowPassage(p))) return;
+    if (this.fp(p)) return this.barrowFP(p, n, b, shard);
 
     if (depth === 0) {
       const s1 = this.barrowStrength(n, 0);
@@ -521,12 +524,62 @@ export class Game {
     });
   }
 
+  // First-person barrow: the player walks the passages, and the engine runs
+  // the fights when they step into the antechamber or the tomb.
+  async barrowFP(p, n, b, shard) {
+    for (let guard = 0; guard < 60; guard++) {
+      const r = await this.io.explore(p, {
+        site: 'barrow', node: n.id, depth: p.depth[n.id] || 0, looted: !!p.looted[n.id],
+        shard: b.revealed ? b.shard : null, hasShard: !!p.shards[b.shard],
+      });
+      if (r === 'leave') {
+        await this.show(p, { glyph: 'barrow', text: `You climb back out of ${n.name}.`, short: true });
+        return;
+      }
+      if (r === 'antechamber' && !(p.depth[n.id] >= 1)) {
+        const s1 = this.barrowStrength(n, 0);
+        const r1 = await this.battle(p, 'wights', s1, { intro: `Barrow-wights rise in the antechamber of ${n.name}, ${s1} of them!` });
+        if (r1 === 'lost') return;
+        if (r1 !== 'won') continue;
+        p.depth[n.id] = 1;
+        const firstReveal = !b.revealed;
+        b.revealed = true;
+        const gold = this.int(3, 7);
+        p.coin += gold;
+        this.clamp(p);
+        if (p.shards[b.shard]) {
+          p.looted[n.id] = true;
+          await this.show(p, { glyph: b.shard, led: gold, text: `The tomb door bears the sigil of the ${shard.name}, already in your keeping. You gather ${gold} coin of grave-gold.`, tone: 'neutral', sound: 'reveal', mood: 'magic', reveal: firstReveal ? n.id : null });
+        } else {
+          await this.show(p, { glyph: b.shard, led: gold, text: `The tomb door bears the sigil of the ${shard.name}! ${gold} coin of grave-gold lies in the dust. The tomb lies beyond.`, tone: 'magic', sound: 'reveal', mood: 'magic', reveal: firstReveal ? n.id : null });
+        }
+        continue;
+      }
+      if (r === 'tomb' && !p.looted[n.id] && !p.shards[b.shard]) {
+        const s2 = this.barrowStrength(n, 1);
+        const r2 = await this.battle(p, 'barrowking', s2, { intro: `The Barrow King rises from his slab, worth ${s2} of your company!` });
+        if (r2 === 'lost') return;
+        if (r2 !== 'won') continue;
+        p.looted[n.id] = true;
+        p.shards[b.shard] = true;
+        const gold = this.int(4, 9);
+        p.coin += gold;
+        this.clamp(p);
+        await this.show(p, {
+          glyph: b.shard, led: this.shardCount(p),
+          text: `You claim the ${shard.name}! ${this.shardCount(p)} of 3, and ${gold} coin besides. Leave when you are ready.`,
+          tone: 'magic', sound: 'shard', mood: 'magic', flare: true,
+        });
+      }
+    }
+  }
+
   // ---------- battles ----------
   async battle(p, foeKind, strength, opts = {}) {
     const foe = FOES[foeKind];
     let left = Math.max(1, strength);
     let bannerUsed = false;
-    await this.show(p, {
+    await this.show(p, { foe: foeKind,
       glyph: foe.glyph, led: left,
       text: opts.intro || `${foe.name}${opts.place ? ` in ${opts.place}` : ''}! Strength ${left}.`,
       tone: 'bad', sound: 'alarm', mood: 'danger',
@@ -543,7 +596,7 @@ export class Game {
         p.provisions = Math.max(0, p.provisions - 1);
         let lost = 0;
         if (this.chance(0.4)) { lost = 1; p.company -= 1; }
-        await this.show(p, {
+        await this.show(p, { foe: foeKind,
           glyph: 'retreat', led: lost ? -lost : null,
           text: `${p.human ? 'You fall' : 'Ser Vael falls'} back from the ${foe.name}${lost ? ', losing one in the retreat' : ''}.`,
           tone: 'neutral', sound: 'retreat', mood: 'warn',
@@ -556,17 +609,17 @@ export class Game {
         left = Math.max(0, left - dmg);
         p.stats.foesSlain += dmg;
         if (left <= 0) break;
-        await this.show(p, { glyph: 'battle', led: left, text: `Your company strikes home: ${dmg} of the foe fall. ${left} remain.`, log: null, tone: 'good', sound: 'hit', mood: 'good', battleTick: true, short: true });
+        await this.show(p, { foe: foeKind, glyph: 'battle', led: left, text: `Your company strikes home: ${dmg} of the foe fall. ${left} remain.`, log: null, tone: 'good', sound: 'hit', mood: 'good', battleTick: true, short: true });
       } else {
         const loss = 1 + (foe.fierce && this.chance(0.25) ? 1 : 0);
         if (p.relics.banner && !bannerUsed) {
           bannerUsed = true;
-          await this.show(p, { glyph: 'banner', led: p.company, text: 'The line wavers, but the war banner holds it together.', log: null, tone: 'good', sound: 'rally', mood: 'good', battleTick: true, short: true });
+          await this.show(p, { foe: foeKind, glyph: 'banner', led: p.company, text: 'The line wavers, but the war banner holds it together.', log: null, tone: 'good', sound: 'rally', mood: 'good', battleTick: true, short: true });
         } else {
           p.company = Math.max(0, p.company - loss);
-          await this.show(p, { glyph: 'wound', led: p.company, text: `The ${foe.name} cut down ${loss}. Your company: ${p.company}.`, log: null, tone: 'bad', sound: 'hurt', mood: 'danger', battleTick: true, short: true });
+          await this.show(p, { foe: foeKind, glyph: 'wound', led: p.company, text: `The ${foe.name} cut down ${loss}. Your company: ${p.company}.`, log: null, tone: 'bad', sound: 'hurt', mood: 'danger', battleTick: true, short: true });
           if (p.company <= 0) {
-            await this.show(p, { glyph: 'defeat', text: `${p.human ? 'Your' : "Ser Vael's"} company is broken by the ${foe.name}.`, tone: 'bad', sound: 'defeat', mood: 'danger' });
+            await this.show(p, { foe: foeKind, glyph: 'defeat', text: `${p.human ? 'Your' : "Ser Vael's"} company is broken by the ${foe.name}.`, tone: 'bad', sound: 'defeat', mood: 'danger' });
             return 'lost';
           }
         }
@@ -580,7 +633,7 @@ export class Game {
       this.clamp(p);
       lootText = ` They leave ${coin} coin behind.`;
     }
-    await this.show(p, { glyph: 'victory', led: p.company, text: `The ${foe.name} ${foe.singular ? 'is' : 'are'} defeated!${lootText}`, tone: 'good', sound: 'win', mood: 'good' });
+    await this.show(p, { foe: foeKind, glyph: 'victory', led: p.company, text: `The ${foe.name} ${foe.singular ? 'is' : 'are'} defeated!${lootText}`, tone: 'good', sound: 'win', mood: 'good' });
     return 'won';
   }
 
@@ -767,6 +820,7 @@ export class Game {
       });
       return;
     }
+    if (this.fp(p)) return this.spireFP(p);
     const g = this.s.gloom;
     const fb = this.chapter.foeBonus;
     if (p.spireTier === 0) {
@@ -788,28 +842,73 @@ export class Game {
     }
     if (p.spireTier === 2) {
       const len = this.chapter.kindleBase + Math.floor(g / 6);
-      const seq = Array.from({ length: len }, () => this.pick(SHARD_IDS));
       const key = await this.ask(p, { kind: 'ascend', tier: 2, glyph: 'kindle', led: len, text: `The crown of the Spire. It will sing the order of kindling, ${len} notes long. Set your shards in the same order. Begin?`, options: ['yes', 'no'] });
       if (key !== 'yes') return;
-      let tries = 0;
-      while (tries++ < 20) {
-        const ok = this.isHuman(p) ? await this.io.kindle(p, seq) : AI.kindle(this, p, seq);
-        if (!this.isHuman(p)) await this.io.aiKindle?.(p, seq, ok);
-        if (ok) {
-          this.s.over = true;
-          this.s.winner = p.id;
-          this.s.reason = p.human
-            ? 'You kindle the crown. Light floods down the Spire and the Gloom breaks over the Reach. The bards will sing of Hearthmoor.'
-            : 'Ser Vael kindles the crown. The Gloom breaks, and the Reach will remember the Warden of Frostvale.';
-          await this.show(p, { glyph: 'victory', text: this.s.reason, tone: 'good', sound: p.human ? 'fanfare' : 'defeat', mood: 'victory', flare: true });
-          return;
+      await this.kindleRite(p);
+    }
+  }
+
+  // The crown sings a sequence; the Warden must repeat it on the sockets.
+  // Returns 'won', 'refused' or 'lost'.
+  async kindleRite(p) {
+    const len = this.chapter.kindleBase + Math.floor(this.s.gloom / 6);
+    const seq = Array.from({ length: len }, () => this.pick(SHARD_IDS));
+    let tries = 0;
+    while (tries++ < 20) {
+      const ok = this.isHuman(p) ? await this.io.kindle(p, seq) : AI.kindle(this, p, seq);
+      if (!this.isHuman(p)) await this.io.aiKindle?.(p, seq, ok);
+      if (ok) {
+        this.s.over = true;
+        this.s.winner = p.id;
+        this.s.reason = p.human
+          ? 'You kindle the crown. Light floods down the Spire and the Gloom breaks over the Reach. The bards will sing of Hearthmoor.'
+          : 'Ser Vael kindles the crown. The Gloom breaks, and the Reach will remember the Warden of Frostvale.';
+        await this.show(p, { glyph: 'victory', text: this.s.reason, tone: 'good', sound: p.human ? 'fanfare' : 'defeat', mood: 'victory', flare: true });
+        return 'won';
+      }
+      const lost = Math.min(p.company, 2);
+      p.company -= lost;
+      await this.show(p, { glyph: 'wound', led: -lost, text: `The crown shrieks at the wrong note. ${lost} of the company are thrown from the parapet.`, tone: 'bad', sound: 'hurt', mood: 'danger' });
+      if (p.company <= 0) return 'lost';
+      const again = await this.ask(p, { kind: 'kindleRetry', glyph: 'kindle', led: p.company, text: 'Try the kindling again?', options: ['yes', 'no'] });
+      if (again !== 'yes') return 'refused';
+    }
+    return 'refused';
+  }
+
+  // First-person Spire: walk the gate hall, the hall of ash and the crown.
+  async spireFP(p) {
+    const key = await this.ask(p, { kind: 'ascend', tier: p.spireTier, glyph: 'spire', text: `The gate of the Spire stands open to the bearer of three shards. ${['Sentinels guard the gate hall.', 'The gate is yours; the Ash Warden waits above.', 'The way to the crown is open.'][p.spireTier]} Enter?`, options: ['yes', 'no'] });
+    if (key !== 'yes') return;
+    const g = this.s.gloom;
+    const fb = this.chapter.foeBonus;
+    for (let guard = 0; guard < 60; guard++) {
+      const r = await this.io.explore(p, { site: 'spire', tier: p.spireTier });
+      if (r === 'leave') {
+        await this.show(p, { glyph: 'spire', text: 'You withdraw from the Spire.', short: true });
+        return;
+      }
+      if (r === 'gate' && p.spireTier === 0) {
+        const res = await this.battle(p, 'sentinels', 10 + Math.floor(g * 0.8) + fb * 2, { intro: 'The Sentinels grind into motion!' });
+        if (res === 'lost') return;
+        if (res === 'won') {
+          p.spireTier = 1;
+          await this.show(p, { glyph: 'spire', text: 'You hold the gate of the Spire. The stair beyond is open.', tone: 'good', sound: 'win', mood: 'magic', flare: true });
         }
-        const lost = Math.min(p.company, 2);
-        p.company -= lost;
-        await this.show(p, { glyph: 'wound', led: -lost, text: `The crown shrieks at the wrong note. ${lost} of the company are thrown from the parapet.`, tone: 'bad', sound: 'hurt', mood: 'danger' });
-        if (p.company <= 0) return;
-        const again = await this.ask(p, { kind: 'kindleRetry', glyph: 'kindle', led: p.company, text: 'Try the kindling again?', options: ['yes', 'no'] });
-        if (again !== 'yes') return;
+        continue;
+      }
+      if (r === 'hall' && p.spireTier === 1) {
+        const res = await this.battle(p, 'ashwarden', 13 + Math.floor(g * 0.9) + fb * 2, { intro: 'The Ash Warden draws a sword of fire!' });
+        if (res === 'lost') return;
+        if (res === 'won') {
+          p.spireTier = 2;
+          await this.show(p, { glyph: 'kindle', text: 'The Ash Warden falls. The last stair climbs to the crown.', tone: 'good', sound: 'win', mood: 'magic', flare: true });
+        }
+        continue;
+      }
+      if (r === 'crown' && p.spireTier === 2) {
+        const res = await this.kindleRite(p);
+        if (res === 'won' || res === 'lost') return;
       }
     }
   }

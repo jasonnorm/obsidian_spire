@@ -24,6 +24,15 @@ python3 -m http.server 8000
 - **The console**: the tower's face pulled up beside the board. A crystal lamp, a backlit picture window with 54 slide glyphs, a red three-digit seven-segment LED, an amber ticker, three crown sockets and a nine-key pad (Yes, No, Next, Fight, Flee, Stay, Ledger, Repeat, End). Every event comes through it, with synthesised square-wave sound.
 - **Peg ledgers**: one scorecard per Warden. Company, coin and provisions each have a tens row and a units row of holes with a coloured peg in each. Relics, the ward and Spire progress get their own holes, and shards sit in gem sockets. A purple peg on the Gloom strip at the top of the screen tracks the doom clock.
 
+## Warden's eye: the first-person view
+
+Press `V` (or the Warden's eye button) at any point in a game to switch from the board to your Warden's own eyes, and again to switch back. Both views run the same game; the board keeps track of everything while you ride.
+
+- **The look.** The scene is rendered at 300 lines and every pixel is snapped to sixteen colours picked from the EGA's 64, with a 4x4 ordered dither, then scaled up with hard edges. Nothing is filtered or smoothed, so everything on screen reads like a 640x350 EGA display, only sharper.
+- **Overland.** The board's map is rebuilt at walking scale (seven metres to a board unit). Keeps, market stalls, domed shrines, barrow mounds and the Spire are life size, the provinces are tiled with their own ground textures, mountains ring the horizon, and the Spire's crown glows in whatever colour the console is showing. `←`/`→` (or A/D) turn you toward each road, `↑` (or W) rides it, and the console's Stay key still works.
+- **Barrows and the Spire.** These become grid dungeons. `W`/`S` step, `A`/`D` turn, `Q`/`E` sidestep and `Esc` climbs out. The automap fills in as your torch shows the way. Walking into a barrow's antechamber wakes its wights, the tomb gate brings out the Barrow King, and the shard sits on the altar behind him. The Spire is three floors: the Sentinels' gate hall, the Ash Warden's hall and the crown room, where three sockets wait for the kindling song.
+- **The art.** Every foe, townsperson, prop and texture is original pixel art in the 16-colour palette: brigands, dire wolves, Gloom Hounds, wraiths, barrow-wights, the Barrow King, the Spire Sentinels, the Ash Warden, the merchant, priest, steward, pilgrim, peddler, sellsword, raven and Ser Vael himself, plus your own sword hand at the bottom of the screen.
+
 ## Rules in brief
 
 On your turn, click a glowing space to travel (two roads with a Swift Steed) or press Stay. Your company eats one provision per twelve soldiers afterwards.
@@ -65,11 +74,18 @@ js/glyphs.js        the console's SVG slide glyphs
 js/console.js       the Spire console: LED, ticker, keypad, crown sockets
 js/ledger.js        peg scorecards and the Gloom track
 js/audio.js         Web Audio sound effects and tunes
-js/main.js          wiring, screens, saves
+js/main.js          wiring, screens, saves, view switching
+js/fp/palette.js    the 16-colour EGA palette and pixel-art helpers
+js/fp/gfx.js        pixel textures, sprites and the EGA dither pass
+js/fp/world.js      the overland Reach at walking scale
+js/fp/dungeon.js    barrow and Spire floor maps and their geometry
+js/fp/view.js       first-person camera, controls, HUD and staging
+js/fp/sprites-*.js  pixel art: foes, people, props
+js/fp/textures.js   procedural pixel textures and the mountain backdrop
 vendor/             three.js r160 module build and OrbitControls (MIT)
 tools/sim.mjs       headless balance simulation, the computer playing both seats
 tools/build.mjs     esbuild bundle into dist/
-tools/*-preview.html  contact sheets for the glyphs and 3D models
+tools/*-preview.html  contact sheets for the glyphs, 3D models and pixel art
 ```
 
 The engine has no DOM dependency, so balance changes can be checked without a browser:

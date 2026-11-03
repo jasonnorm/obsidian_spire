@@ -8,7 +8,7 @@
 <meta name="description" content="An electronic quest board game for one Warden against a computer rival.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@500;600;700;900&family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=VT323&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+Sans:ital,wght@0,400;0,500;0,700;1,400&family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@500;600;700;900&family=IM+Fell+English:ital@0;1&family=IM+Fell+English+SC&family=Press+Start+2P&family=VT323&display=swap">
 <link rel="stylesheet" href="css/style.css">
 <script type="importmap">
 { "imports": { "three": "./vendor/three.module.min.js", "three/addons/controls/OrbitControls.js": "./vendor/OrbitControls.js" } }
@@ -26,6 +26,7 @@
       <span class="round" id="round-label">Round 1</span>
       <button type="button" class="tb-btn" id="btn-sound" aria-pressed="true">Sound on</button>
       <button type="button" class="tb-btn" id="btn-speed">Pace: Normal</button>
+      <button type="button" class="tb-btn tb-eye" id="btn-view-mode" aria-pressed="false" title="Switch between the board and your Warden's eyes (V)">Warden's eye</button>
       <button type="button" class="tb-btn" id="btn-view">Recentre</button>
       <button type="button" class="tb-btn" id="btn-rules">Rules</button>
       <div class="menu-wrap">
@@ -45,6 +46,8 @@
     <section class="board-wrap" id="board-wrap">
       <div class="board-stage" id="board-stage">
         <canvas id="board" aria-label="The board of the Gloaming Reach. Glowing spaces are the roads you can take."></canvas>
+        <canvas id="fp" class="fp-canvas" aria-label="First-person view through your Warden's eyes" hidden></canvas>
+        <div class="fp-hud" id="fp-hud" hidden></div>
         <div class="node-tip" id="node-tip" hidden></div>
         <div class="board-fallback" id="board-fallback" hidden>
           <p>This browser could not start WebGL, so the 3D board cannot be drawn. You can still play: choose your roads from the list that appears on your turn.</p>
@@ -99,7 +102,7 @@
       <button type="button" class="btn" id="btn-continue" hidden>Continue</button>
       <button type="button" class="btn ghost" id="btn-howto">How to play</button>
     </div>
-    <p class="fine">Drag to turn the board, scroll or pinch to zoom. Keys: Y yes, N no, X next, F fight, L flee, S stay, I ledger, R repeat, E end.</p>
+    <p class="fine">Drag to turn the board, scroll or pinch to zoom. Press V or the Warden's eye button to see the Reach in first person. Keys: Y yes, N no, X next, F fight, L flee, S stay, I ledger, R repeat, E end.</p>
   </div>
 </div>
 
@@ -163,6 +166,9 @@
 
     <h3>The Gloom</h3>
     <p>The Spire pulses every second round and the Gloom track rises. At 4 wraiths walk, at 7 prices rise, at 8 the barrow passages are haunted, at 10 Gloom Hounds hunt, at 14 prices soar. When the peg reaches the last hole, the Spire wakes and the chapter is lost.</p>
+
+    <h3>Warden's eye</h3>
+    <p>Press <kbd>V</kbd> or the Warden's eye button to leave the board and see the Reach through your own eyes, drawn in sixteen colours the way a 1985 EGA screen would have. Overland, <kbd>&larr;</kbd> and <kbd>&rarr;</kbd> (or A and D) turn you toward each road and <kbd>&uarr;</kbd> (or W) rides it. Inside a barrow or the Spire you walk a grid: <kbd>W</kbd> and <kbd>S</kbd> step, <kbd>A</kbd> and <kbd>D</kbd> turn, <kbd>Q</kbd> and <kbd>E</kbd> sidestep, and <kbd>Esc</kbd> climbs back out. Step into the antechamber to fight its wights, through the tomb gate to face the Barrow King, and up the Spire's stairs to the crown. The map in the corner fills in as your torch shows the way.</p>
 
     <h3>The ledgers</h3>
     <p>Each Warden's scorecard keeps company, coin and provisions with a tens peg and a units peg, plus holes for relics, the ward and Spire progress, and sockets for shards. Press <kbd>Ledger</kbd> to have the Spire read yours aloud, <kbd>Repeat</kbd> to see the last message again, and click the picture window to hurry it along.</p>
