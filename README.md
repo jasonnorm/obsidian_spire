@@ -8,10 +8,10 @@ The rules, map, art, pieces and sounds are all original to this project.
 
 The quickest way is the bundled single file: open `dist/obsidian-spire.html` in a browser. It needs no server and no network access apart from Google Fonts (it falls back to system serif faces without them).
 
-To run from source, serve this folder over HTTP, since ES modules don't load from `file://`:
+To run from source, serve the repository root over HTTP, since ES modules don't load from `file://`:
 
 ```sh
-cd games/obsidian-spire
+cd obsidian_spire
 python3 -m http.server 8000
 # then open http://localhost:8000/
 ```
