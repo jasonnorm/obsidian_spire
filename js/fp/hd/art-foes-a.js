@@ -111,6 +111,23 @@ function tuft(pts, { n = 3, lean = 0.5, seed = 1, jit = 0.5, closed = true, def 
   return closed ? sm(out, true) : sm(out, false);
 }
 
+// A ribbon with separate half-widths on each side: knots [x, y, left, right]
+// (left is the side to the left of travel). Returns { d, pts }.
+function rib2(pts) {
+  const n = pts.length, L = [], R = [];
+  const dir = (a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], m = Math.hypot(dx, dy) || 1; return [dx / m, dy / m]; };
+  for (let i = 0; i < n; i++) {
+    const [tx, ty] = dir(pts[Math.max(0, i - 1)], pts[Math.min(n - 1, i + 1)]);
+    const [x, y, l, r] = pts[i];
+    L.push([x - ty * l, y + tx * l]);
+    R.push([x + ty * r, y - tx * r]);
+  }
+  const [ax, ay] = dir(pts[0], pts[1]), [bx, by] = dir(pts[n - 2], pts[n - 1]);
+  const e = pts[n - 1], s0 = pts[0];
+  const out = [...L, [e[0] + bx * (e[2] + e[3]) * 0.35, e[1] + by * (e[2] + e[3]) * 0.35], ...R.reverse(), [s0[0] - ax * (s0[2] + s0[3]) * 0.3, s0[1] - ay * (s0[2] + s0[3]) * 0.3]];
+  return { d: sm(out), pts: out };
+}
+
 // Ellipse as a path.
 function ell(cx, cy, rx, ry, rot = 0) {
   const a = (rot * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
@@ -133,6 +150,13 @@ function xf(pts, { dx = 0, dy = 0, rot = 0, cx = 0, cy = 0, sx = 1, sy = 1 } = {
 }
 const lerp = (a, b, t) => a + (b - a) * t;
 const mix2 = (p, q, t) => [lerp(p[0], q[0], t), lerp(p[1], q[1], t)];
+
+// A near-black lifted toward warm umber (#2a1a12): shadows are never pure black.
+function warmDark(hex) {
+  const v = hex.length === 4 ? hex.slice(1).split('').map((ch) => parseInt(ch + ch, 16)) : [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const u = [0x2a, 0x1a, 0x12];
+  return '#' + v.map((c, i) => Math.round(c * 0.35 + u[i] * 0.65).toString(16).padStart(2, '0')).join('');
+}
 
 // ---------------------------------------------------------------- SVG context
 class Ctx {
@@ -187,73 +211,125 @@ class Ctx {
     }
     return this.cache[k];
   }
-  // Volume shading for a part: a soft shadow band on lower-right edges, a warm
-  // highlight band on upper-left edges and an optional material mottle.
-  vol({ k = 6, b = 4, sc = '#120a14', so = 0.55, hc = KEY, ho = 0.28, tex = 0, tf = 0.05, tc = '#000', seed = 3 } = {}) {
-    const key = `v${k}|${b}|${sc}|${so}|${hc}|${ho}|${tex}|${tf}|${tc}|${seed}`;
+  // Volume for one part, painted: a warm core shadow on the lower-right side,
+  // warm light reflected up into the underside, a key-light band on upper-left
+  // edges and an optional mottled glaze of the material.
+  vol({ k = 6, b = 4, sc = '#2a1a12', so = 0.55, hc = KEY, ho = 0.28, tex = 0, tf = 0.05, tc = '#2a1a12', seed = 3, rc = '#c8784a', ro = 0.2 } = {}) {
+    if (/^#0|^#1[0-9a-f]/i.test(sc)) sc = warmDark(sc);
+    if (/^#0|^#1[0-9a-f]/i.test(tc)) tc = warmDark(tc);
+    const key = `v${k}|${b}|${sc}|${so}|${hc}|${ho}|${tex}|${tf}|${tc}|${seed}|${rc}|${ro}`;
     if (!this.cache[key]) {
       const id = this.nid('vol');
       let t = '';
       let tm = '';
       if (tex) {
-        t = `<feTurbulence type="fractalNoise" baseFrequency="${tf}" numOctaves="3" seed="${seed}" result="tn"/>` +
+        t = `<feTurbulence type="fractalNoise" baseFrequency="${r1(tf * 0.6 * 1000) / 1000}" numOctaves="2" seed="${seed}" result="tn"/>` +
           `<feColorMatrix in="tn" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  2.6 0 0 0 -1.15" result="ta"/>` +
           `<feFlood flood-color="${tc}" flood-opacity="${tex}"/><feComposite in2="ta" operator="in" result="tb"/>` +
           `<feComposite in="tb" in2="SourceAlpha" operator="in" result="tex"/>`;
         tm = '<feMergeNode in="tex"/>';
       }
+      const rk = Math.max(3, k * 0.6);
+      const kk = k * 1.6, so2 = Math.min(0.85, so * 1.25);
       this.defs.push(`<filter id="${id}" ${this.region()} color-interpolation-filters="sRGB">` +
         t +
-        `<feOffset in="SourceAlpha" dx="${-k}" dy="${-k}" result="o1"/>` +
+        `<feOffset in="SourceAlpha" dx="${r1(-kk)}" dy="${r1(-kk)}" result="o1"/>` +
         `<feComposite in="SourceAlpha" in2="o1" operator="out" result="s1"/>` +
-        `<feGaussianBlur in="s1" stdDeviation="${b}" result="s2"/>` +
+        `<feGaussianBlur in="s1" stdDeviation="${r1(b * 1.5)}" result="s2"/>` +
         `<feComposite in="s2" in2="SourceAlpha" operator="in" result="s3"/>` +
-        `<feFlood flood-color="${sc}" flood-opacity="${so}"/><feComposite in2="s3" operator="in" result="sh"/>` +
+        `<feFlood flood-color="${sc}" flood-opacity="${r1(so2 * 100) / 100}"/><feComposite in2="s3" operator="in" result="sh"/>` +
+        `<feOffset in="SourceAlpha" dx="0" dy="${-rk}" result="o3"/>` +
+        `<feComposite in="SourceAlpha" in2="o3" operator="out" result="r1"/>` +
+        `<feGaussianBlur in="r1" stdDeviation="${rk * 0.5}" result="r2"/>` +
+        `<feComposite in="r2" in2="SourceAlpha" operator="in" result="r3"/>` +
+        `<feFlood flood-color="${rc}" flood-opacity="${ro}"/><feComposite in2="r3" operator="in" result="rf"/>` +
         `<feOffset in="SourceAlpha" dx="${k * 0.8}" dy="${k * 0.9}" result="o2"/>` +
         `<feComposite in="SourceAlpha" in2="o2" operator="out" result="h1"/>` +
         `<feGaussianBlur in="h1" stdDeviation="${b * 0.75}" result="h2"/>` +
         `<feComposite in="h2" in2="SourceAlpha" operator="in" result="h3"/>` +
         `<feFlood flood-color="${hc}" flood-opacity="${ho}"/><feComposite in2="h3" operator="in" result="hi"/>` +
-        `<feMerge><feMergeNode in="SourceGraphic"/>${tm}<feMergeNode in="sh"/><feMergeNode in="hi"/></feMerge></filter>`);
+        `<feMerge><feMergeNode in="SourceGraphic"/>${tm}<feMergeNode in="sh"/><feMergeNode in="rf"/><feMergeNode in="hi"/></feMerge></filter>`);
       this.cache[key] = `url(#${id})`;
     }
     return this.cache[key];
   }
-  // The whole-figure finish: outline on the outer silhouette, rim light on the
-  // right-hand edges, a soft warm key on upper-left edges, and fine grain.
-  fx({ rim = 0.7, key = 0.2, grain = 0.1, ol = 2, seed = 7, lx = null, ly = null, lz = null, kd = 1.08 } = {}) {
-    const k = `fx${rim}|${key}|${grain}|${ol}|${lx}|${ly}|${lz}|${kd}`;
+  // The whole-figure finish, painted rather than inked: no outline. A warm
+  // point light from the upper left models the big value masses; edges turned
+  // away from the light (lower right) dissolve softly while lit edges stay
+  // crisp ("lost and found"); a cool rim from behind on the right, a warm key
+  // band on upper-left edges, warm light bounced up from below and a faint
+  // grain (the paint pass supplies texture).
+  fx({ rim = 0.75, key = 0.24, grain = 0.03, seed = 7, lx = null, ly = null, lz = null, kd = 1.38, soft = 1.6, bounce = 0.16 } = {}) {
+    const k = `fx${rim}|${key}|${grain}|${lx}|${ly}|${lz}|${kd}|${soft}|${bounce}`;
     if (!this.cache[k]) {
       const id = this.nid('fx');
-      // a point light above the upper-left corner: brighter head and shoulders, darker feet
-      const LX = lx ?? -this.w * 0.15, LY = ly ?? -this.h * 0.2, LZ = lz ?? Math.max(this.w, this.h) * 1.05;
+      const LX = lx ?? -this.w * 0.2, LY = ly ?? -this.h * 0.25, LZ = lz ?? Math.max(this.w, this.h) * 0.72;
       this.defs.push(`<filter id="${id}" ${this.region()} color-interpolation-filters="sRGB">` +
-        `<feDiffuseLighting in="SourceAlpha" surfaceScale="0" diffuseConstant="${kd}" lighting-color="#ffffff" result="lt"><fePointLight x="${r1(LX)}" y="${r1(LY)}" z="${r1(LZ)}"/></feDiffuseLighting>` +
-        `<feBlend in="SourceGraphic" in2="lt" mode="multiply" result="lit0"/>` +
-        `<feComposite in="lit0" in2="SourceAlpha" operator="in" result="lit"/>` +
-        `<feMorphology in="SourceAlpha" operator="dilate" radius="${ol}" result="dl"/>` +
-        `<feFlood flood-color="${OUT}"/><feComposite in2="dl" operator="in" result="ol"/>` +
-        `<feOffset in="SourceAlpha" dx="-2.5" dy="1.5" result="ro"/>` +
+        // big value design: warm light pooling on the upper left, warm umber falloff
+        `<feDiffuseLighting in="SourceAlpha" surfaceScale="0" diffuseConstant="${kd}" lighting-color="#fff0dc" result="lt"><fePointLight x="${r1(LX)}" y="${r1(LY)}" z="${r1(LZ)}"/></feDiffuseLighting>` +
+        `<feComponentTransfer in="lt" result="lt2"><feFuncR type="linear" slope="0.95" intercept="0.06"/><feFuncG type="linear" slope="1" intercept="0.02"/><feFuncB type="linear" slope="1.05" intercept="-0.04"/></feComponentTransfer>` +
+        `<feBlend in="SourceGraphic" in2="lt2" mode="multiply" result="lit0"/>` +
+        `<feColorMatrix in="lit0" type="saturate" values="1.15" result="lit1"/>` +
+        `<feComponentTransfer in="lit1" result="lit2"><feFuncR type="gamma" amplitude="1.04" exponent="1.22" offset="0.005"/><feFuncG type="gamma" amplitude="1.02" exponent="1.25" offset="0"/><feFuncB type="gamma" amplitude="1" exponent="1.3" offset="0"/></feComponentTransfer>` +
+        `<feComposite in="lit2" in2="SourceAlpha" operator="in" result="lit"/>` +
+        // lost edges: the shadow-side contour band is replaced by a softened copy
+        `<feOffset in="SourceAlpha" dx="-5" dy="-5" result="lo"/>` +
+        `<feComposite in="SourceAlpha" in2="lo" operator="out" result="lb"/>` +
+        `<feMorphology in="lb" operator="dilate" radius="2" result="lb2"/>` +
+        `<feGaussianBlur in="lb2" stdDeviation="1.5" result="lmask"/>` +
+        `<feGaussianBlur in="lit" stdDeviation="${soft}" result="lsoft"/>` +
+        `<feComposite in="lsoft" in2="lmask" operator="in" result="lost"/>` +
+        `<feComposite in="lit" in2="lmask" operator="out" result="found"/>` +
+        `<feMerge result="body"><feMergeNode in="lost"/><feMergeNode in="found"/></feMerge>` +
+        // cool rim from behind on the right
+        `<feOffset in="SourceAlpha" dx="-4" dy="2" result="ro"/>` +
         `<feComposite in="SourceAlpha" in2="ro" operator="out" result="ra"/>` +
-        `<feGaussianBlur in="ra" stdDeviation="1.1" result="rb"/>` +
+        `<feGaussianBlur in="ra" stdDeviation="1.4" result="rb"/>` +
         `<feComposite in="rb" in2="SourceAlpha" operator="in" result="rc"/>` +
         `<feFlood flood-color="${RIM}" flood-opacity="${rim}"/><feComposite in2="rc" operator="in" result="rim"/>` +
-        `<feOffset in="SourceAlpha" dx="8" dy="9" result="ko"/>` +
+        // warm key band on the upper-left edges
+        `<feOffset in="SourceAlpha" dx="9" dy="10" result="ko"/>` +
         `<feComposite in="SourceAlpha" in2="ko" operator="out" result="ka"/>` +
-        `<feGaussianBlur in="ka" stdDeviation="4" result="kb"/>` +
+        `<feGaussianBlur in="ka" stdDeviation="4.5" result="kb"/>` +
         `<feComposite in="kb" in2="SourceAlpha" operator="in" result="kc"/>` +
         `<feFlood flood-color="${KEY}" flood-opacity="${key}"/><feComposite in2="kc" operator="in" result="key"/>` +
-        `<feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="${seed}" result="n"/>` +
-        `<feColorMatrix in="n" type="matrix" values="0 0 0 0 0.08  0 0 0 0 0.06  0 0 0 0 0.05  -4 0 0 0 2.1" result="nd"/>` +
-        `<feColorMatrix in="n" type="matrix" values="0 0 0 0 1  0 0 0 0 0.92  0 0 0 0 0.82  3 0 0 0 -1.75" result="nl"/>` +
-        `<feMerge result="nm"><feMergeNode in="nd"/><feMergeNode in="nl"/></feMerge>` +
-        `<feComposite in="nm" in2="SourceAlpha" operator="in" result="nc"/>` +
+        // warm light reflected up from the ground into the undersides
+        `<feOffset in="SourceAlpha" dx="0" dy="-7" result="bo"/>` +
+        `<feComposite in="SourceAlpha" in2="bo" operator="out" result="ba"/>` +
+        `<feGaussianBlur in="ba" stdDeviation="3" result="bb"/>` +
+        `<feComposite in="bb" in2="SourceAlpha" operator="in" result="bc"/>` +
+        `<feFlood flood-color="#d0844e" flood-opacity="${bounce}"/><feComposite in2="bc" operator="in" result="bnc"/>` +
+        `<feTurbulence type="fractalNoise" baseFrequency="0.7" numOctaves="2" seed="${seed}" result="n"/>` +
+        `<feColorMatrix in="n" type="matrix" values="0 0 0 0 0.16  0 0 0 0 0.1  0 0 0 0 0.07  -4 0 0 0 2.1" result="nd"/>` +
+        `<feComposite in="nd" in2="SourceAlpha" operator="in" result="nc"/>` +
         `<feComponentTransfer in="nc" result="grain"><feFuncA type="linear" slope="${grain}"/></feComponentTransfer>` +
-        `<feMerge><feMergeNode in="ol"/><feMergeNode in="lit"/><feMergeNode in="key"/><feMergeNode in="rim"/><feMergeNode in="grain"/></feMerge></filter>`);
+        `<feMerge><feMergeNode in="body"/><feMergeNode in="key"/><feMergeNode in="bnc"/><feMergeNode in="rim"/><feMergeNode in="grain"/></feMerge></filter>`);
       this.cache[k] = `url(#${id})`;
     }
     return this.cache[k];
   }
+  // Glazes: overlapping translucent irregular patches of the given colours,
+  // softened, to be clipped to a part (`inside(part, c.glaze(...))`). Builds
+  // form and colour variation the way layered oil glazes do.
+  glaze({ x0, y0, x1, y1, n = 10, cols, op = 0.22, size = 40, b = 6, bias = null }) {
+    const R = this.rand;
+    let s = '';
+    for (let i = 0; i < n; i++) {
+      let x = lerp(x0, x1, R()), y = lerp(y0, y1, R());
+      if (bias) [x, y] = bias(x, y, R);
+      const r = size * (0.5 + R() * 0.8), m = 5 + Math.floor(R() * 3), pts = [];
+      const rot = R() * Math.PI;
+      for (let j = 0; j < m; j++) {
+        const t = rot + (j / m) * Math.PI * 2, rr = r * (0.55 + R() * 0.6);
+        pts.push([x + Math.cos(t) * rr, y + Math.sin(t) * rr * (0.6 + R() * 0.5)]);
+      }
+      s += `<path d="${sm(pts)}" fill="${cols[Math.floor(R() * cols.length)]}" opacity="${r1(op * (0.5 + R()) * 100) / 100}"/>`;
+    }
+    return `<g filter="${this.blur(b)}">${s}</g>`;
+  }
+  // Brush strokes: long tapered strokes following a direction field, at least
+  // ~5px wide so they survive the paint pass.
+  strokes(o) { return this.clumps({ w: 7, len: 34, lv: 0.6, spread: 10, bend: 0.2, op: 0.4, ...o }); }
   // Fine strands (fur, hair, bristles, fibres) scattered over a box, each a
   // short curved stroke at angle a (degrees) +- spread.
   strands({ x0, y0, x1, y1, n, a = 90, spread = 20, len = 14, lv = 0.4, w = 1.2, cols, op = 0.6, curl = 0.25, field }) {
@@ -300,7 +376,17 @@ const S = (d, stroke, w, extra = '') => `<path d="${d}" fill="none" stroke="${st
 const G = (content, extra = '') => `<g${extra ? ' ' + extra : ''}>${content}</g>`;
 
 function wrapSvg(c, body) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${c.w}" height="${c.h}" viewBox="0 0 ${c.w} ${c.h}"><defs>${c.defs.join('')}</defs>${body}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${c.w}" height="${c.h}" viewBox="0 0 ${c.w} ${c.h}"><defs>${c.defs.join('')}</defs>${body}</svg>`;
+  // no pure blacks: any colour darker than #141414 becomes a warm deep umber
+  return svg.replace(/(fill|stroke|stop-color|flood-color)="(#[0-9a-fA-F]{3}|#[0-9a-fA-F]{6})"/g, (m, attr, hex) => {
+    const v = hex.length === 4 ? hex.slice(1).split('').map((ch) => parseInt(ch + ch, 16)) : [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    return Math.max(...v) < 0x14 ? `${attr}="${warmDark(hex)}"` : m;
+  });
+}
+
+// A faint atmospheric halo (behind the head or shoulders), outside the figure.
+function halo(c, x, y, rx, ry, col = '#ffd9a0', op = 0.18) {
+  return `<ellipse cx="${r1(x)}" cy="${r1(y)}" rx="${r1(rx)}" ry="${r1(ry)}" fill="${c.rg([[0, col, op], [0.55, col, op * 0.45], [1, col, 0]], 0.5, 0.5, 0.5)}"/>`;
 }
 
 // Soft shading blob clipped to a part: `inside(part, blob(...))`.
@@ -432,6 +518,7 @@ function brigand(c, A) {
   torso += c.inside(skirtR, line(c, 'M268 326L268 364', '#1a0c05', 3, 1.5, 0.6) + S('M238 358L298 354', '#e0b888', 1.2, 'stroke-dasharray="3 4" opacity="0.5"'));
   torso += P(jerkin, jerkinFill(), `filter="${c.vol({ ...leather, k: 9, b: 7 })}"`);
   torso += c.inside(jerkin,
+    c.glaze({ x0: 160, y0: 150, x1: 320, y1: 320, n: 12, cols: ['#c8884a', '#4a2410', '#8a5a2a', '#6a3a1a'], op: 0.25, size: 34, b: 7 }) +
     blob(c, sm([[196, 176], [226, 172], [230, 250], [206, 280], [186, 240]]), '#d7a066', 16, 0.32) +
     blob(c, sm([[262, 186], [310, 182], [306, 290], [272, 296]]), '#170a03', 16, 0.5) +
     blob(c, sm([[190, 258], [290, 258], [296, 300], [184, 300]]), '#170a03', 12, 0.25) +
@@ -470,6 +557,8 @@ function brigand(c, A) {
   let head = '';
   head += P(hood, c.lg([[0, '#93c060'], [0.3, '#548436'], [0.7, '#2c5022'], [1, '#12240e']], 0.15, 0, 0.85, 1), `filter="${c.vol({ ...cloth, k: 10, b: 8, ho: 0.3, tex: 0.28 })}"`);
   head += c.inside(hood,
+    c.glaze({ x0: 130, y0: 16, x1: 350, y1: 230, n: 14, cols: ['#a8d070', '#2a4a18', '#6a9a3a', '#5a6a20'], op: 0.25, size: 40, b: 8 }) +
+    c.strokes({ x0: 130, y0: 120, x1: 350, y1: 220, n: 26, a: 95, len: 40, w: 6, cols: ['#183010', '#7aaa48'], op: 0.35, field: (x) => 90 + (x - 240) * 0.25 }) +
     line(c, sm([[260, 22], [284, 58], [292, 110]], false), '#b4d878', 4, 4, 0.3) +
     line(c, sm([[216, 24], [198, 52], [192, 100]], false), '#e0f4b0', 5, 4, 0.32) +
     line(c, sm([[182, 128], [172, 158], [164, 184]], false), '#0a1606', 5, 4, 0.6) +
@@ -488,11 +577,11 @@ function brigand(c, A) {
   head += P(face, c.rg([[0, '#e2a882'], [0.45, '#b06e4a'], [0.85, '#6a3a26'], [1, '#3a1e0e']], 0.36, 0.62, 0.7));
   head += c.inside(face,
     // brow ridge, cheekbones and the shadow of the hood across the forehead
-    blob(c, ell(222, 98, 9, 5), '#f0b48c', 4, 0.55) +
+    blob(c, ell(222, 98, 10, 6), '#f4bc94', 4, 0.7) + blob(c, ell(226, 76, 12, 4), '#e8a880', 3, 0.5) +
     blob(c, ell(262, 99, 8, 5), '#4a2214', 4, 0.55) +
     blob(c, 'M237 82L243 82L244 100L236 100Z', '#f2c49c', 2.2, 0.5) +
-    blob(c, ell(228, 86, 11, 6.5), '#3a180c', 3.5, 0.8) + blob(c, ell(252, 86, 11, 6.5), '#2a1208', 3.5, 0.85) +
-    blob(c, 'M196 28L284 28L284 74Q262 66 240 70Q218 66 196 76Z', '#0c0503', 6, 0.9) +
+    blob(c, ell(227, 86, 15, 9), '#2a120a', 3.5, 0.75) + blob(c, ell(253, 86, 15, 9), '#2a1208', 3.5, 0.85) +
+    blob(c, 'M196 28L284 28L284 68Q262 60 240 64Q218 60 196 70Z', '#0c0503', 6, 0.82) +
     blob(c, 'M254 40L284 40L284 128L260 128Z', '#1a0a04', 9, 0.6) +
     // locks of dark hair falling from under the hood
     P(sm([[212, 50], [228, 46], [226, 54], [220, 68], [216, 82, 0], [213, 66]]), '#170b05') +
@@ -502,16 +591,18 @@ function brigand(c, A) {
     // weathered creases below the eyes
     line(c, 'M219 92Q227 95 235 92', '#5a2c18', 1.2, 0.5, 0.6) + line(c, 'M245 92Q253 95 261 92', '#4a2414', 1.2, 0.5, 0.6) +
     line(c, 'M216 88L212 86', '#4a2414', 1, 0.4, 0.5) + line(c, 'M264 88L268 86', '#4a2414', 1, 0.4, 0.5));
+  // eyes sized to survive the paint pass: clear whites, a large amber iris,
+  // a bold catchlight and a heavy upper lid
   const eye = (x, y, flip) => {
-    const shape = sm([[x - 8, y + 1, 0.5], [x - 3, y - 3], [x + 4, y - 3], [x + 8, y - 0.5 * flip, 0.5], [x + 3, y + 2.4], [x - 3, y + 2.4]]);
-    return P(shape, '#c2b09c') + c.inside(shape,
-      `<circle cx="${x + flip * 0.6}" cy="${y - 0.2}" r="3.7" fill="${c.rgU([[0, '#c49a48'], [0.55, '#6e4a18'], [1, '#22140a']], x, y, 3.7)}"/>` +
-      `<circle cx="${x + flip * 0.6}" cy="${y - 0.2}" r="1.7" fill="#0a0503"/>` +
-      blob(c, `M${x - 9} ${y - 5}L${x + 9} ${y - 5}L${x + 9} ${y - 0.5}L${x - 9} ${y - 0.5}Z`, '#1a0a04', 1.1, 0.8)) +
-      `<circle cx="${x - 1.2}" cy="${y - 1.1}" r="1.05" fill="#fffaf0"/>` +
-      S(sm([[x - 9, y + 0.8], [x - 3, y - 3.6], [x + 4, y - 3.6], [x + 9, y - 0.3]], false), '#120704', 1.8);
+    const shape = sm([[x - 11, y + 1.5, 0.5], [x - 4, y - 5], [x + 5, y - 5], [x + 11, y - 0.5 * flip, 0.5], [x + 4, y + 4.4], [x - 4, y + 4.4]]);
+    return P(shape, '#f0e2c8') + c.inside(shape,
+      `<circle cx="${x + flip * 0.8}" cy="${y + 0.3}" r="4.4" fill="${c.rgU([[0, '#ffd070'], [0.5, '#c88a2a'], [1, '#4a2a0a']], x, y, 4.4)}"/>` +
+      `<circle cx="${x + flip * 0.8}" cy="${y + 0.3}" r="1.9" fill="#1a0a04"/>` +
+      blob(c, `M${x - 12} ${y - 7}L${x + 12} ${y - 7}L${x + 12} ${y - 3}L${x - 12} ${y - 3}Z`, '#3a1a0a', 1.2, 0.55)) +
+      `<circle cx="${x - 1.8}" cy="${y - 1.4}" r="2.4" fill="#ffffff"/>` +
+      S(sm([[x - 12, y + 1], [x - 4, y - 5.6], [x + 5, y - 5.6], [x + 12, y - 0.3]], false), '#1a0a04', 2.4);
   };
-  head += eye(228, 86, 1) + eye(252, 86, -1);
+  head += eye(227, 86, 1) + eye(253, 86, -1);
   if (A) {
     // knitted, furious brows for the lunge
     head += P(sm([[212, 74, 0], [224, 74], [237, 81], [237, 84.5, 0], [224, 78.5], [213, 77.5, 0]]), '#1a0d06');
@@ -599,7 +690,7 @@ function brigand(c, A) {
   }
   // order: legs, raised arm, torso, arms, hood and head
   const body = legsSvg + back + G(torso + torsoAO, `transform="${tr}"`) + front + G(head, `transform="${tr}"`);
-  return `<g filter="${c.fx()}">${body}</g>`;
+  return `${halo(c, 240 + T.dx * 0.6, 126 + T.dy * 0.6, 150, 112, '#ffcf90', 0.2)}<g filter="${c.fx()}">${body}</g>`;
 }
 
 // ---------------------------------------------------------------- wolf
@@ -628,8 +719,8 @@ function wolfHead(c, jaw, pal) {
     blob(c, ell(-66, 64, 26, 42, -10), '#ebe6da', 10, 0.8) + blob(c, ell(68, 62, 28, 44, 10), '#b6b0a4', 10, 0.6) +
     blob(c, ell(0, -40, 44, 24), '#26272c', 12, 0.65) +
     blob(c, ell(66, 30, 26, 60), '#141418', 14, 0.45) +
-    c.clumps({ x0: -96, y0: -60, x1: 96, y1: 132, n: 380, len: 13, lv: 0.5, w: 3, cols: ['#2e2f34', '#3c3d42', '#4c4d52'], op: 0.4, spread: 10, field: (x, y) => (Math.atan2(y - 40, x) * 180) / Math.PI }) +
-    c.clumps({ x0: -96, y0: -50, x1: 10, y1: 120, n: 120, len: 12, lv: 0.5, w: 2.6, cols: ['#d6d2c8', '#bdb9b0'], op: 0.35, spread: 10, field: (x, y) => (Math.atan2(y - 40, x) * 180) / Math.PI }));
+    c.clumps({ x0: -96, y0: -60, x1: 96, y1: 132, n: 150, len: 20, lv: 0.5, w: 6, cols: ['#2e2f34', '#3c3d42', '#4c4d52'], op: 0.42, spread: 10, field: (x, y) => (Math.atan2(y - 40, x) * 180) / Math.PI }) +
+    c.clumps({ x0: -96, y0: -50, x1: 10, y1: 120, n: 50, len: 18, lv: 0.5, w: 5.5, cols: ['#e6e0d4', '#c8c2b6'], op: 0.4, spread: 10, field: (x, y) => (Math.atan2(y - 40, x) * 180) / Math.PI }));
   // lower jaw
   const jawD = sm([[-58, 100], [-46, 118 + J * 0.85], [-24, 130 + J], [-6, 134 + J], [16, 130 + J], [38, 116 + J * 0.85], [46, 98], [24, 102 + J * 0.6], [-30, 104 + J * 0.6]]);
   s += P(jawD, pal.cream(), `filter="${furVs}"`);
@@ -704,7 +795,7 @@ function wolf(c, A) {
   const DK = ['#1c1d21', '#26272b', '#303136'];
   const MD = ['#5a5b60', '#6c6d72'];
   const LT = ['#a8a6a0', '#96948f', '#b8b5ae'];
-  const cl = (o) => c.clumps({ op: 0.34, w: 3.6, len: 18, spread: 10, lv: 0.6, ...o });
+  const cl = (o) => c.clumps({ op: 0.4, w: 5.5, len: 24, spread: 10, lv: 0.6, ...o, n: Math.round((o.n || 40) * 0.6) });
   const d = A ? 16 : 0; // crouch
 
   const paw = (x, y, w, dark) => {
@@ -785,7 +876,7 @@ function wolf(c, A) {
   }
   const hx = A ? 172 : 190, hy = A ? 168 : 158, hs = A ? 0.82 : 0.76, hr = A ? -8 : -3;
   s += G(wolfHead(c, A ? 1 : 0.14, pal), `transform="translate(${hx} ${hy}) rotate(${hr}) scale(${hs})"`);
-  return `<g filter="${c.fx({ seed: 9 })}">${s}</g>`;
+  return `${halo(c, A ? 180 : 196, A ? 190 : 176, 170, 150, '#ffcf90', 0.18)}<g filter="${c.fx({ seed: 9 })}">${s}</g>`;
 }
 
 // ---------------------------------------------------------------- hound
@@ -864,132 +955,162 @@ function houndHead(c, jaw, blaze) {
   return s;
 }
 
+// Painted smoke: soft translucent puffs swelling and fading along a path, with
+// a few paler curling strokes through them. pts = [[x, y], ...].
+function smoke(c, pts, { cols = ['#6a48d0', '#3ab0c0'], size = 14, grow = 2.2, op = 0.5, seed = 1, b = 5 } = {}) {
+  const R = rng(seed);
+  let s = '';
+  const n = pts.length;
+  for (let i = 0; i < n - 1; i++) {
+    for (let k = 0; k < 3; k++) {
+      const t = (i + k / 3) / (n - 1), a = pts[i], z = pts[i + 1], u = k / 3;
+      const x = lerp(a[0], z[0], u) + (R() - 0.5) * size, y = lerp(a[1], z[1], u) + (R() - 0.5) * size;
+      const r = size * 1.5 * (0.7 + t * grow) * (0.7 + R() * 0.6), m = 6, q = [];
+      for (let j = 0; j < m; j++) { const th = (j / m) * Math.PI * 2 + R(), rr = r * (0.6 + R() * 0.5); q.push([x + Math.cos(th) * rr, y + Math.sin(th) * rr * 0.7]); }
+      s += `<path d="${sm(q)}" fill="${cols[(i + k) % cols.length]}" opacity="${r1(Math.min(0.9, op * 1.3 * (1 - t * 0.8) * (0.6 + R() * 0.5)) * 100) / 100}"/>`;
+    }
+  }
+  // paler curling strokes through the smoke
+  const core = pts.map(([x, y], i) => [x, y, Math.max(0, size * 0.9 * (1 - i / (n - 1)))]);
+  const g = c.lgU([[0, '#e0d0ff', op * 0.45], [0.6, '#b49aff', op * 0.15], [1, '#9a7aff', 0]], pts[0][0], pts[0][1], pts[n - 1][0], pts[n - 1][1]);
+  return `<g filter="${c.blur(b)}">${s}</g><path d="${rib(core, 1, 0)}" fill="${g}" filter="${c.blur(4)}"/>`;
+}
+
 // Gloom Hound: a gaunt spectral black-violet hound facing right with its head
-// turned to the viewer, violet ribs showing through, burning yellow eyes and
-// smoke trailing. attack: leaping, mouth blazing.
+// turned to the viewer, violet ribs glowing through the hide, burning yellow
+// eyes and smoke pouring off it. attack: leaping, mouth blazing.
 function hound(c, A) {
-  const v = c.vol({ k: 8, b: 6, sc: '#010003', so: 0.65, hc: '#b898ff', ho: 0.2, tex: 0.35, tf: 0.05, tc: '#000', seed: 34 });
-  const vs = c.vol({ k: 4, b: 3, sc: '#010003', so: 0.65, hc: '#b898ff', ho: 0.24 });
-  const hide = () => c.lg([[0, '#3a2c66'], [0.3, '#1c1536'], [0.7, '#0c0818'], [1, '#040307']], 0.1, 0, 0.9, 1);
-  const far = () => c.lg([[0, '#1e1636'], [0.5, '#0c0818'], [1, '#030206']], 0.1, 0, 0.9, 1);
+  const v = c.vol({ k: 8, b: 6, sc: '#1a1020', so: 0.7, hc: '#b898ff', ho: 0.22, tex: 0.3, tf: 0.05, tc: '#1a1020', seed: 34, rc: '#8a5ac0', ro: 0.25 });
+  const vs = c.vol({ k: 5, b: 4, sc: '#1a1020', so: 0.7, hc: '#c8a8ff', ho: 0.3, rc: '#8a5ac0', ro: 0.25 });
+  const hide = () => c.lg([[0, '#5a46a0'], [0.3, '#2e2258'], [0.7, '#160f2a'], [1, '#0e0a16']], 0.1, 0, 0.9, 1);
+  const far = () => c.lg([[0, '#261c44'], [0.5, '#140e26'], [1, '#0e0a14']], 0.1, 0, 0.9, 1);
   const T = A ? { rot: -18, cx: 320, cy: 240, dx: 14, dy: -36 } : { rot: 0, cx: 0, cy: 0, dx: 0, dy: 0 };
   const tp = (x, y) => xf([[x, y]], T)[0];
   const tr = `translate(${T.dx} ${T.dy}) rotate(${T.rot} ${T.cx} ${T.cy})`;
 
-  // a paw: long toes and claws, pointing along ang (degrees, 0 = right)
+  // a paw: long toes and hooked claws, pointing along ang (degrees, 0 = right)
   const paw = (x, y, ang, w, dark) => {
     const R = (pts) => xf(pts, { rot: ang }).map(([px, py, ...r]) => [px + x, py + y, ...r]);
-    const d = sm(R([[-w * 0.45, -9], [w * 0.2, -10], [w * 0.62, -2], [w * 0.7, 6], [w * 0.4, 9, 0], [-w * 0.5, 9, 0]]));
+    const d = sm(R([[-w * 0.5, -12], [w * 0.15, -14], [w * 0.6, -4], [w * 0.72, 6], [w * 0.4, 10, 0], [-w * 0.55, 10, 0]]));
     let s = P(d, dark ? far() : hide(), `filter="${vs}"`);
-    s += c.inside(d, [0.05, 0.3, 0.52].map((t) => { const [p, q] = R([[w * t, -6], [w * t + 2, 8]]); return line(c, `M${r1(p[0])} ${r1(p[1])}L${r1(q[0])} ${r1(q[1])}`, '#000', 1.6, 0.8, 0.8); }).join(''));
-    for (const t of [0.18, 0.42, 0.64]) {
-      const cl = sm(R([[w * t, 4], [w * t + 5, 3], [w * t + 12, 11, 0], [w * t + 3, 8]]));
-      s += P(cl, c.lg([[0, '#e8dcc8'], [1, '#6a6050']]));
+    s += c.inside(d, [0.02, 0.3, 0.55].map((t) => { const [p, q] = R([[w * t, -8], [w * t + 3, 8]]); return line(c, `M${r1(p[0])} ${r1(p[1])}L${r1(q[0])} ${r1(q[1])}`, '#1a1020', 3, 1.2, 0.7); }).join('') +
+      blob(c, ell(...R([[0, -10]])[0], w * 0.4, 5), '#8a6ad8', 3, dark ? 0.2 : 0.45));
+    for (const t of [0.12, 0.4, 0.66]) {
+      const cl = sm(R([[w * t - 1, 3], [w * t + 7, 2], [w * t + 15, 13, 0], [w * t + 3, 9]]));
+      s += P(cl, c.lg([[0, '#efe4d0'], [1, '#6a5a48']]));
     }
     return s;
   };
-  // a jointed leg along [x, y, width] knots, sinew and bone under thin hide
-  const leg = (pts, dark) => {
-    const rp = ribPts(pts);
-    const half = Math.floor(rp.length / 2);
-    const d = tuft(rp.map((p, i) => [p[0], p[1], p[2] ?? 1, i > 1 && i < half - 1 ? 5 : 0]), { seed: 900 + Math.round(pts[0][0]), lean: 1.4, n: 2, jit: 0.85 });
+  // a leg from asymmetric knots [x, y, back half-width, front half-width]:
+  // muscle bellies bulge, joints pinch, sinew and bone show under thin hide
+  const leg = (pts, dark, seed) => {
+    const d0 = rib2(pts);
+    const rp = d0.pts;
+    const d = tuft(rp.map((p, i) => [p[0], p[1], p[2] ?? 1, i > 0 && i < pts.length - 2 ? 6 : 0]), { seed, lean: 1.4, n: 2, jit: 0.85 });
     let s = P(d, dark ? far() : hide(), `filter="${vs}"`);
-    const hi = sm(pts.map((p) => [p[0] - p[2] * 0.22, p[1], 1]), false);
-    s += c.inside(d, line(c, hi, dark ? '#3a2c66' : '#8a6ad8', 2.2, 1.6, dark ? 0.4 : 0.6) +
-      pts.slice(1, -1).map((p) => blob(c, ell(p[0] - p[2] * 0.15, p[1], p[2] * 0.3, p[2] * 0.25), dark ? '#4a3a80' : '#a888f0', 2, 0.4)).join(''));
+    const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+    const lit = sm(pts.map((p) => [p[0] + (p[3] - p[2]) * 0.2 - Math.min(p[2], p[3]) * 0.3, p[1], 1]), false);
+    s += c.inside(d,
+      c.glaze({ x0: Math.min(...xs) - 20, y0: Math.min(...ys), x1: Math.max(...xs) + 20, y1: Math.max(...ys), n: 8, cols: dark ? ['#3a2c66', '#0e0a16'] : ['#6a4ab8', '#1a1030', '#9a7ae8'], op: 0.25, size: 20, b: 5 }) +
+      line(c, lit, dark ? '#5a46a0' : '#a888f0', 6, 4, dark ? 0.3 : 0.5) +
+      blob(c, ell(pts[2][0] - 2, pts[2][1], (pts[2][2] + pts[2][3]) * 0.45, (pts[2][2] + pts[2][3]) * 0.5), dark ? '#4a3a80' : '#b498ff', 5, 0.3) +
+      c.strokes({ x0: Math.min(...xs) - 20, y0: Math.min(...ys), x1: Math.max(...xs) + 20, y1: Math.max(...ys), n: 14, a: 100, len: 26, w: 5, cols: ['#0e0a16', '#3a2c66'], op: 0.45 }));
     return s;
   };
 
+  // legs: [x, y, back, front] knots from the top of the limb down to the paw
   let farLegs, nearLegs;
   if (!A) {
-    farLegs = leg([[458, 276, 34], [464, 318, 24], [468, 372, 14], [472, 384, 15], [476, 420, 12], [480, 452, 11]], true) + paw(486, 466, 0, 26, true) +
-      leg([[268, 272, 40], [254, 316, 26], [234, 356, 15], [228, 368, 16], [232, 412, 11], [236, 452, 10]], true) + paw(240, 466, 0, 24, true);
-    nearLegs = leg([[434, 270, 42], [438, 316, 28], [442, 370, 16], [445, 384, 17], [448, 420, 14], [452, 452, 13]], false) + paw(458, 470, 0, 30, false) +
-      leg([[242, 262, 46], [226, 310, 30], [204, 354, 17], [198, 368, 18], [202, 412, 12], [206, 452, 12]], false) + paw(212, 470, 0, 28, false);
+    farLegs = leg([[470, 190, 28, 28], [462, 256, 26, 28], [452, 306, 16, 16], [456, 346, 13, 14], [462, 404, 9, 9], [466, 430, 8, 9], [472, 456, 9, 9]], true, 911) + paw(478, 464, 0, 30, true) +
+      leg([[262, 190, 32, 32], [274, 256, 28, 32], [282, 306, 16, 16], [262, 344, 20, 11], [244, 380, 14, 8], [240, 416, 8, 8], [240, 452, 8, 8]], true, 912) + paw(246, 464, 0, 28, true);
+    nearLegs = leg([[444, 176, 36, 36], [438, 250, 34, 40], [428, 306, 24, 18], [432, 346, 17, 18], [438, 402, 11, 10], [442, 430, 10, 10], [448, 458, 10, 11]], false, 913) + paw(456, 468, 0, 34, false) +
+      leg([[214, 180, 40, 36], [226, 250, 44, 34], [248, 310, 18, 17], [230, 348, 23, 12], [210, 384, 15, 9], [208, 418, 9, 9], [210, 454, 9, 9]], false, 914) + paw(218, 468, 0, 32, false);
   } else {
-    const nf = tp(434, 274), ff = tp(458, 280), nh = tp(240, 268), fh = tp(266, 278);
-    farLegs = leg([[ff[0], ff[1], 30], [520, 262, 18], [560, 250, 13], [590, 244, 11]], true) + paw(598, 242, -12, 26, true) +
-      leg([[fh[0], fh[1], 34], [196, 318, 20], [158, 362, 13], [142, 412, 11], [138, 450, 10]], true) + paw(142, 466, 12, 24, true);
-    nearLegs = leg([[nf[0], nf[1], 38], [500, 290, 22], [544, 292, 16], [576, 290, 13]], false) + paw(584, 290, -4, 30, false) +
-      leg([[nh[0], nh[1], 40], [170, 316, 24], [128, 354, 15], [104, 408, 12], [92, 450, 12]], false) + paw(94, 468, 18, 28, false);
+    const nf = tp(444, 176), ff = tp(470, 190), nh = tp(214, 180), fh = tp(262, 190);
+    farLegs = leg([[ff[0], ff[1], 28, 28], [504, 214, 24, 26], [540, 234, 15, 15], [560, 238, 11, 12], [582, 236, 9, 9]], true, 921) + paw(588, 236, -6, 30, true) +
+      leg([[fh[0], fh[1], 32, 32], [214, 256, 28, 32], [196, 308, 16, 16], [164, 344, 18, 11], [140, 394, 10, 8], [128, 440, 8, 8]], true, 922) + paw(126, 458, 40, 28, true);
+    nearLegs = leg([[nf[0], nf[1], 36, 36], [492, 236, 32, 38], [526, 270, 20, 18], [550, 282, 14, 15], [576, 286, 10, 10]], false, 923) + paw(584, 288, 4, 34, false) +
+      leg([[nh[0], nh[1], 40, 36], [168, 254, 44, 34], [158, 310, 18, 17], [124, 348, 22, 12], [96, 394, 12, 9], [82, 440, 9, 9]], false, 924) + paw(80, 460, 46, 32, false);
   }
+
   // body: hollow flanks, ribs and hip bones; ragged hide trailing backward
   const bodyD = tuft([[452, 148], [420, 126, 1, 5], [386, 132, 1, 6], [348, 144, 1, 6], [310, 148, 1, 6], [272, 142, 1, 7], [238, 136, 1, 7], [206, 144, 1, 8], [178, 156, 1, 8], [158, 176, 1, 8], [150, 208, 1, 7], [156, 242], [178, 270], [212, 290], [246, 292], [256, 266, 1, 5], [266, 238, 1, 5], [294, 224, 1, 6], [332, 246, 1, 6], [372, 278, 1, 6], [410, 298, 1, 6], [440, 304], [464, 270], [470, 226]], { seed: 91, lean: -1.4, n: 2.2, jit: 0.8 });
   let bd = P(bodyD, hide(), `filter="${v}"`);
-  let ribs = '';
+  // ribs: each one different in spacing, length, curve and glow
+  const Rr = rng(77);
+  let ribs = '', ribGlow = '';
+  let x0 = 318;
   for (let k = 0; k < 7; k++) {
-    const x0 = 322 + k * 16, y0 = 156 + k * 1.2, yb = 262 + k * 5 - (k > 4 ? (k - 4) * 8 : 0);
-    const d = `M${x0} ${y0}C${x0 - 30} ${y0 + 34} ${x0 - 30} ${yb - 40} ${x0 - 6 + k * 2} ${yb}`;
-    const g = `M${x0 + 8} ${y0 + 4}C${x0 - 21} ${y0 + 38} ${x0 - 21} ${yb - 36} ${x0 + 3 + k * 2} ${yb + 2}`;
-    ribs += line(c, g, '#000000', 9, 3.5, 0.85) + line(c, d, '#6a46c8', 6, 2.5, 0.55) + line(c, d, '#a47cff', 2.6, 1.1, 0.85) + line(c, `M${x0 - 2} ${y0 + 6}C${x0 - 30} ${y0 + 36} ${x0 - 30} ${yb - 50} ${x0 - 18} ${yb - 24}`, '#efe4ff', 1, 0.5, 0.5);
+    x0 += 13 + Rr() * 7;
+    const y0 = 154 + k * 1.2 + (Rr() - 0.5) * 4, yb = 254 + k * 6 - (k > 4 ? (k - 4) * 9 : 0) + (Rr() - 0.5) * 10;
+    const bow = 24 + Rr() * 14, lean = -8 + k * 2 + (Rr() - 0.5) * 6, w = 7 + Rr() * 3;
+    const d = `M${r1(x0)} ${r1(y0)}C${r1(x0 - bow)} ${r1(y0 + 34)} ${r1(x0 - bow)} ${r1(yb - 40)} ${r1(x0 + lean)} ${r1(yb)}`;
+    const g = `M${r1(x0 + 9)} ${r1(y0 + 4)}C${r1(x0 - bow + 10)} ${r1(y0 + 38)} ${r1(x0 - bow + 10)} ${r1(yb - 36)} ${r1(x0 + lean + 9)} ${r1(yb + 2)}`;
+    ribs += line(c, g, '#140c1c', w + 3, 4, 0.8) + line(c, d, '#7a52e0', w, 2.5, 0.6 + Rr() * 0.2) + line(c, d, '#c4a4ff', w * 0.45, 1.4, 0.75 + Rr() * 0.2);
+    ribGlow += line(c, d, '#9a6aff', w * 2.4, 7, 0.22 + Rr() * 0.1);
   }
-  ribs += blob(c, sm([[300, 250], [440, 270], [430, 310], [300, 300]]), '#000', 12, 0.6);
+  ribs += blob(c, sm([[300, 250], [440, 270], [430, 310], [300, 300]]), '#140c1c', 12, 0.6);
   let spine = '';
-  for (let k = 0; k < 12; k++) { const x = 228 + k * 17, y = 142 + Math.sin(k * 0.5) * 3 + (k < 3 ? 2 : 0); spine += P(ell(x, y + 6, 6, 3.5), '#8a6ad8', `filter="${c.blur(1.5)}" opacity="0.55"`); }
+  for (let k = 0; k < 11; k++) { const x = 230 + k * 18 + (Rr() - 0.5) * 5, y = 142 + Math.sin(k * 0.5) * 3; spine += P(ell(x, y + 6, 7 + Rr() * 2, 5), '#9a7ae8', `filter="${c.blur(2.5)}" opacity="${r1((0.4 + Rr() * 0.25) * 100) / 100}"`); }
   bd += c.inside(bodyD,
-    blob(c, sm([[260, 224], [300, 226], [334, 252], [300, 270], [262, 262]]), '#000', 10, 0.6) +
+    c.glaze({ x0: 150, y0: 130, x1: 470, y1: 300, n: 18, cols: ['#4a3488', '#160e24', '#2a1c50', '#6a2a6a'], op: 0.3, size: 46, b: 9 }) +
+    blob(c, sm([[260, 224], [300, 226], [334, 252], [300, 270], [262, 262]]), '#140c1c', 10, 0.6) +
     ribs + spine +
-    // haunch and shoulder blade
-    blob(c, ell(206, 200, 34, 52, -20), '#2e2454', 12, 0.6) + blob(c, ell(214, 166, 16, 10), '#a080f0', 5, 0.55) +
-    line(c, 'M234 172Q246 230 250 284', '#000', 9, 5, 0.6) + line(c, 'M190 186Q204 236 224 280', '#7a5cc8', 2.5, 2, 0.45) +
-    line(c, 'M452 160Q440 220 446 292', '#000', 10, 6, 0.6) + blob(c, ell(410, 176, 22, 30, 20), '#2e2454', 10, 0.6) + line(c, 'M396 150Q420 170 430 210', '#a080f0', 2.5, 2, 0.4) +
-    c.strands({ x0: 150, y0: 126, x1: 470, y1: 306, n: 300, a: 172, spread: 12, len: 18, w: 1.1, cols: ['#000', '#2e2454', '#05030a'], op: 0.55 }));
+    // haunch, shoulder blade, hip bone
+    blob(c, ell(206, 200, 36, 54, -20), '#3a2c66', 12, 0.55) + blob(c, ell(212, 164, 18, 11), '#b498ff', 6, 0.55) +
+    line(c, 'M234 172Q246 230 250 284', '#140c1c', 10, 6, 0.55) + line(c, 'M190 186Q204 236 224 280', '#8a6ad8', 6, 4, 0.4) +
+    line(c, 'M452 160Q440 220 446 292', '#140c1c', 10, 6, 0.55) + blob(c, ell(410, 176, 24, 32, 20), '#3a2c66', 10, 0.55) + line(c, 'M396 150Q420 170 430 210', '#b498ff', 6, 4, 0.4) +
+    c.strokes({ x0: 150, y0: 126, x1: 470, y1: 306, n: 70, a: 172, len: 30, w: 5, cols: ['#0e0a16', '#3a2c66', '#140c1c'], op: 0.4 }));
   const tail = A ? [[170, 162, 18], [134, 160, 13], [100, 150, 9], [70, 134, 6], [46, 116, 0]] : [[166, 166, 18], [134, 184, 13], [102, 194, 9], [72, 188, 6], [46, 172, 0]];
-  bd = P(tuft(ribPts(tail, 1, 0).map((p) => [p[0], p[1], p[2] ?? 1, 4]), { seed: 97, lean: -1, n: 2 }), hide(), `filter="${vs}"`) + bd;
+  bd = P(tuft(ribPts(tail, 1, 0).map((p) => [p[0], p[1], p[2] ?? 1, 5]), { seed: 97, lean: -1, n: 2 }), hide(), `filter="${vs}"`) + bd;
   const neck = rib([[470, 134, 58], [450, 178, 68], [436, 222, 76]]);
-  bd += P(neck, hide(), `filter="${v}"`) + c.inside(neck, line(c, 'M484 142Q466 182 458 228', '#000', 6, 4, 0.6) + line(c, 'M452 138Q438 172 430 212', '#8a6ad8', 2.5, 2.5, 0.45) + line(c, 'M462 150Q452 190 446 226', '#000', 2, 1.5, 0.5));
+  bd += P(neck, hide(), `filter="${v}"`) + c.inside(neck, line(c, 'M484 142Q466 182 458 228', '#140c1c', 8, 5, 0.55) + line(c, 'M452 138Q438 172 430 212', '#9a7ae8', 6, 4, 0.45) + c.strokes({ x0: 420, y0: 120, x1: 500, y1: 240, n: 16, a: 110, len: 28, w: 5, cols: ['#0e0a16', '#4a3a80'], op: 0.45 }));
 
   let s = farLegs + G(bd, `transform="${tr}"`) + nearLegs;
   const H = A ? [500, 126] : tp(488, 120);
   const hs = A ? 0.9 : 0.86, hr = A ? -8 : 6;
   s += G(houndHead(c, A ? 30 : 3, A), `transform="translate(${r1(H[0])} ${r1(H[1])}) rotate(${hr}) scale(${hs})"`);
 
-  // smoke rising off the hide and unravelling from the tail (no outline)
-  let wisps = '', back = '';
-  // resample a wisp into many knots with a travelling wave and swelling width
-  const wave = (pts, amp, ph) => {
-    const out = [];
-    for (let i = 0; i < pts.length - 1; i++) {
-      for (let k = 0; k < 4; k++) {
-        const t = k / 4, a = pts[i], b = pts[i + 1], j = i * 4 + k;
-        out.push([lerp(a[0], b[0], t), lerp(a[1], b[1], t) + Math.sin(j * 0.9 + ph) * amp * (j / (pts.length * 4)) * 2, lerp(a[2], b[2], t) * (1 + 0.35 * Math.sin(j * 1.3 + ph))]);
-      }
-    }
-    out.push(pts[pts.length - 1]);
-    return out;
-  };
-  const W = (pts, col, op, b, behind) => { const q = wave(pts.map(([x, y, w]) => { const [X, Y] = tp(x, y); return [X, Y, w]; }), 6, pts[0][0] * 0.1); const w = wisp(c, q, col, op, b); if (behind) back += w; else wisps += w; };
+  // smoke pouring off the back and unravelling from the tail and hocks
+  const W = (pts) => pts.map(([x, y]) => tp(x, y));
+  let back = halo(c, H[0] - 10, H[1] - 10, 120, 100, '#7a5ad0', 0.22);
   const tt = A ? [46, 116] : [46, 172];
-  W([[tt[0] + 14, tt[1] + 2, 10], [tt[0] - 4, tt[1] - 6, 14], [tt[0] - 18, tt[1] - 10, 10], [tt[0] - 28, tt[1] - 20, 0]], '#9a72ff', 0.85, 2);
-  W([[tt[0] + 30, tt[1] + 8, 8], [tt[0] + 4, tt[1] + 18, 12], [tt[0] - 20, tt[1] + 26, 0]], '#48d6e0', 0.7, 2);
-  for (let k = 0; k < 4; k++) {
-    const x = 214 + k * 64, y = 146 - (k > 2 ? 4 : 0);
-    W([[x, y + 10, 10], [x - 34, y - 6, 18], [x - 74, y - 16, 16], [x - 120, y - 22, 0]], k % 2 ? '#48d6e0' : '#9a70ff', 0.55, 3);
+  back += smoke(c, W([[240, 140], [200, 116], [166, 104], [134, 102], [116, 108]]), { cols: ['#5a3cc0', '#2a1a60', '#3ab0c0'], size: 15, grow: 1.4, op: 0.55, seed: 3, b: 6 });
+  back += smoke(c, W([[330, 140], [294, 112], [254, 94], [214, 84]]), { cols: ['#3a8ab0', '#4a30a0'], size: 13, grow: 1.6, op: 0.45, seed: 4, b: 6 });
+  back += smoke(c, W([[420, 128], [404, 100], [384, 80], [362, 68]]), { cols: ['#6a48d0', '#2a1a60'], size: 10, grow: 1.4, op: 0.4, seed: 5, b: 5 });
+  let front = smoke(c, W([[tt[0] + 6, tt[1]], [tt[0] + 8, tt[1] - 12], [tt[0] + 16, tt[1] - 24], [tt[0] + 28, tt[1] - 36]]), { cols: ['#9a72ff', '#3ab0c0'], size: 9, grow: 1.4, op: 0.6, seed: 6, b: 3 });
+  front += smoke(c, W([[160, 240], [134, 252], [112, 258], [96, 258]]), { cols: ['#6a48d0', '#3ab0c0'], size: 11, grow: 1.5, op: 0.45, seed: 7, b: 5 });
+  front += smoke(c, W([[300, 286], [262, 304], [222, 312]]), { cols: ['#3ab0c0', '#6a48d0'], size: 9, op: 0.35, seed: 8, b: 4 });
+  if (!A) {
+    front += smoke(c, [[206, 380], [176, 392], [146, 398], [116, 396]], { cols: ['#3ab0c0', '#6a48d0'], size: 8, op: 0.4, seed: 9, b: 4 });
+    front += smoke(c, [[436, 340], [410, 356], [384, 364]], { cols: ['#6a48d0'], size: 7, op: 0.35, seed: 10, b: 4 });
+  } else {
+    front += smoke(c, [[118, 360], [102, 364], [88, 364], [78, 360]], { cols: ['#3ab0c0', '#6a48d0'], size: 8, op: 0.45, seed: 9, b: 4 });
+    front += smoke(c, [[150, 300], [112, 292], [70, 286]], { cols: ['#6a48d0'], size: 9, op: 0.4, seed: 10, b: 5 });
   }
-  W([[160, 236, 12], [120, 250, 20], [80, 254, 16], [36, 250, 0]], '#8c64ff', 0.55, 3.5);
-  W([[256, 286, 10], [214, 302, 16], [170, 310, 0]], '#48d6e0', 0.45, 3);
-  W([[200, 150, 22], [146, 124, 30], [90, 108, 24], [36, 100, 0]], '#5a3cc0', 0.5, 6, true);
-  W([[300, 146, 18], [240, 116, 26], [180, 100, 18], [110, 92, 0]], '#3ab0c0', 0.35, 6, true);
-  if (!A) { W([[198, 372, 8], [168, 380, 10], [136, 384, 0]], '#48d6e0', 0.5, 2.5); W([[232, 374, 6], [206, 388, 8], [180, 394, 0]], '#8c64ff', 0.45, 2.5); W([[446, 380, 6], [420, 392, 8], [396, 398, 0]], '#8c64ff', 0.4, 2.5); }
-  else { W([[150, 360, 8], [110, 366, 10], [70, 368, 0]], '#48d6e0', 0.55, 2.5); W([[176, 320, 10], [130, 314, 12], [84, 306, 0]], '#8c64ff', 0.5, 3); }
 
   // glows: eyes, ribs, the blazing mouth
   const hp = (x, y) => { const a = (hr * Math.PI) / 180; return [H[0] + (x * Math.cos(a) - y * Math.sin(a)) * hs, H[1] + (x * Math.sin(a) + y * Math.cos(a)) * hs]; };
   const [ex, ey] = hp(-22, -2), [fx, fy] = hp(26, -7);
-  let glow = `<circle cx="${r1(ex)}" cy="${r1(ey)}" r="18" fill="#ffaa18" opacity="0.5" filter="${c.blur(8)}"/><circle cx="${r1(fx)}" cy="${r1(fy)}" r="14" fill="#ffaa18" opacity="0.45" filter="${c.blur(7)}"/>`;
-  glow += `<ellipse cx="${r1(ex)}" cy="${r1(ey)}" rx="9" ry="5" fill="#fff8d0" opacity="0.7" filter="${c.blur(2.5)}"/><ellipse cx="${r1(fx)}" cy="${r1(fy)}" rx="6" ry="4" fill="#fff8d0" opacity="0.6" filter="${c.blur(2)}"/>`;
-  const ribGlow = sm(xf([[320, 200], [380, 230], [430, 270], [400, 290], [330, 250]], T));
-  glow += `<path d="${ribGlow}" fill="#8c5cff" opacity="0.22" filter="${c.blur(16)}"/>`;
+  let glow = `<g transform="${tr}">${ribGlow}</g>`;
+  glow += `<circle cx="${r1(ex)}" cy="${r1(ey)}" r="22" fill="#ffaa18" opacity="0.5" filter="${c.blur(9)}"/><circle cx="${r1(fx)}" cy="${r1(fy)}" r="17" fill="#ffaa18" opacity="0.45" filter="${c.blur(8)}"/>`;
+  glow += `<ellipse cx="${r1(ex)}" cy="${r1(ey)}" rx="10" ry="6" fill="#fff8d0" opacity="0.75" filter="${c.blur(2.5)}"/><ellipse cx="${r1(fx)}" cy="${r1(fy)}" rx="7" ry="5" fill="#fff8d0" opacity="0.65" filter="${c.blur(2)}"/>`;
   if (A) {
     const [mx, my] = hp(26, 86);
-    glow += `<ellipse cx="${r1(mx)}" cy="${r1(my)}" rx="66" ry="46" fill="#ff8a10" opacity="0.45" filter="${c.blur(16)}"/><ellipse cx="${r1(mx)}" cy="${r1(my)}" rx="30" ry="22" fill="#ffe680" opacity="0.6" filter="${c.blur(7)}"/>`;
-    for (const [x, y, a, L] of [[40, 96, 40, 40], [20, 100, 70, 44], [56, 90, 20, 46], [0, 92, 95, 34]]) {
+    glow += `<ellipse cx="${r1(mx)}" cy="${r1(my)}" rx="74" ry="52" fill="#ff8a10" opacity="0.45" filter="${c.blur(18)}"/><ellipse cx="${r1(mx)}" cy="${r1(my)}" rx="32" ry="24" fill="#ffe680" opacity="0.65" filter="${c.blur(8)}"/>`;
+    const Rf = rng(5);
+    for (const [x, y, a, L] of [[40, 96, 40, 44], [20, 100, 70, 48], [56, 90, 20, 50], [0, 92, 95, 36], [64, 96, 0, 40]]) {
       const [X, Y] = hp(x, y); const rad = ((a + hr) * Math.PI) / 180;
-      const pts = [[X, Y, 14], [X + Math.cos(rad) * L * 0.5 + 4, Y + Math.sin(rad) * L * 0.5, 10], [X + Math.cos(rad) * L - 6, Y + Math.sin(rad) * L - 8, 0]];
-      glow += `<path d="${rib(pts, 1, 0)}" fill="${c.lgU([[0, '#fff2a0', 0.95], [0.5, '#ffb020', 0.8], [1, '#ff5010', 0]], pts[0][0], pts[0][1], pts[2][0], pts[2][1])}" filter="${c.blur(1.5)}"/>`;
+      const pts = [[X, Y, 16], [X + Math.cos(rad) * L * 0.5 + 4, Y + Math.sin(rad) * L * 0.5, 11], [X + Math.cos(rad) * L - 6, Y + Math.sin(rad) * L - 10, 0]];
+      glow += `<path d="${rib(pts, 1, 0)}" fill="${c.lgU([[0, '#fff2a0', 0.95], [0.5, '#ffb020', 0.8], [1, '#ff5010', 0]], pts[0][0], pts[0][1], pts[2][0], pts[2][1])}" filter="${c.blur(2.5)}"/>`;
+    }
+    // embers
+    for (let k = 0; k < 9; k++) {
+      const [X, Y] = hp(70 + Rf() * 90, 40 + Rf() * 90);
+      glow += `<circle cx="${r1(Math.min(618, X))}" cy="${r1(Math.max(14, Y))}" r="${r1(2.5 + Rf() * 2.5)}" fill="#ffd060" opacity="${r1((0.5 + Rf() * 0.4) * 100) / 100}" filter="${c.blur(1.2)}"/>`;
     }
   }
-  return `${back}<g filter="${c.fx({ seed: 13, rim: 0.85 })}">${s}</g>${wisps}${glow}`;
+  return `${back}<g filter="${c.fx({ seed: 13, rim: 0.85 })}">${s}</g>${front}${glow}`;
 }
 
 // ---------------------------------------------------------------- wraith
@@ -1079,7 +1200,8 @@ function wraith(c, A) {
   const tear = (x, y, w, h, sd) => { const d = tuft([[x - w, y], [x, y - h], [x + w, y + 4], [x + 2, y + h]], { def: 5, seed: sd, n: 2, jit: 0.9 }); return P(d, '#02030a', 'opacity="0.85"') + S(d, '#4a7ac0', 1.2, 'opacity="0.35"'); };
   s += c.inside(body, folds +
     blob(c, ell(370, 420, 70, 200), '#02030a', 30, 0.5) + blob(c, ell(200, 300, 50, 110), '#6a8ad8', 30, 0.22) +
-    c.strands({ x0: 140, y0: 200, x1: 420, y1: 660, n: 180, a: 90, spread: 5, len: 46, w: 1.1, cols: ['#02040c', '#3a5aa8', '#1a8a96'], op: 0.35 }) +
+    c.glaze({ x0: 140, y0: 200, x1: 420, y1: 620, n: 16, cols: ['#2a4a9a', '#0e1838', '#1a6a7a', '#3a2a6a'], op: 0.28, size: 60, b: 12 }) +
+    c.strokes({ x0: 140, y0: 200, x1: 420, y1: 640, n: 60, a: 90, spread: 5, len: 60, w: 6, cols: ['#0a1020', '#3a5aa8', '#1a7a86'], op: 0.35 }) +
     line(c, 'M150 336Q280 360 410 336', '#070b1a', 15, 3, 0.9) + line(c, 'M150 330Q280 354 410 330', '#4a7ab0', 3, 2, 0.5));
   s += P(ell(276, 350, 13, 10), c.lg([[0, '#3a5a90'], [1, '#0a0f22']]), `filter="${clothS}"`) +
     P(rib([[272, 358, 9], [266, 410, 7], [270, 452, 5], [262, 476, 0]]), c.lg([[0, '#2a4a80'], [1, '#080c1c']]), `filter="${clothS}"`) +
@@ -1144,7 +1266,7 @@ function wraith(c, A) {
     const x = 190 + k * 45 + (R() - 0.5) * 20, y = hem + 80 + R() * 20;
     mist += `<ellipse cx="${r1(x)}" cy="${r1(y)}" rx="${r1(34 + R() * 20)}" ry="${r1(9 + R() * 6)}" fill="${k % 2 ? '#3aa6b8' : '#2a3c88'}" opacity="${r1(0.12 + R() * 0.08)}" filter="${c.blur(10)}"/>`;
   }
-  return `${mist}<g filter="${c.fx({ seed: 17, rim: 0.85 })}">${s}</g>${fade}${glow}`;
+  return `${halo(c, 280, 150, 150, 140, '#5aa0e0', 0.22)}${mist}<g filter="${c.fx({ seed: 17, rim: 0.85 })}">${s}</g>${fade}${glow}`;
 }
 
 // ---------------------------------------------------------------- undead kit
@@ -1158,20 +1280,33 @@ function bone(c, a, b, w, { w1 = w, dark = 0 } = {}) {
   return P(d, f, `filter="${c.vol({ k: 3, b: 2.2, sc: '#140e08', so: 0.6, ho: 0.3, tex: 0.3, tf: 0.12, tc: '#2a2010', seed: 52 })}"`) +
     c.inside(d, line(c, `M${r1(m1[0] - 2)} ${r1(m1[1])}L${r1(m2[0] - 2)} ${r1(m2[1])}`, '#fffbe8', 1.4, 0.8, dark ? 0.15 : 0.45));
 }
-// Chain mail: a ring pattern over a steel gradient, rust blooms and shading.
+// Chain mail, painted: dark steel glazed with rust, the rings suggested by
+// broken rows of highlight dabs that catch the key light (denser and brighter
+// toward the upper left, fading into the shadow side), never a repeat pattern.
 function mail(c, d, { rust = 0.5, seed = 1, dark = 0 } = {}) {
-  if (!c.cache.mail) {
-    const id = c.nid('mail');
-    c.defs.push(`<pattern id="${id}" patternUnits="userSpaceOnUse" width="6" height="5">` +
-      `<rect width="6" height="5" fill="#34363a"/>` +
-      ['0 0', '6 0', '3 2.5', '0 5', '6 5'].map((p) => { const [x, y] = p.split(' '); return `<circle cx="${x}" cy="${y}" r="2.1" fill="none" stroke="#16181b" stroke-width="1.3"/><path d="M${+x - 1.6} ${+y - 1}A2 2 0 0 1 ${+x + 1.2} ${+y - 1.6}" fill="none" stroke="#b4b8bc" stroke-width="0.8"/>`; }).join('') + `</pattern>`);
-    c.cache.mail = `url(#${id})`;
+  const nums = (d.match(/-?\d+(\.\d+)?/g) || []).map(Number);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (let i = 0; i + 1 < nums.length; i += 2) { x0 = Math.min(x0, nums[i]); x1 = Math.max(x1, nums[i]); y0 = Math.min(y0, nums[i + 1]); y1 = Math.max(y1, nums[i + 1]); }
+  const R = rng(seed * 31 + 7);
+  const lightAt = (x, y) => 1 - Math.min(1, Math.max(0, ((x - x0) / (x1 - x0 || 1)) * 0.55 + ((y - y0) / (y1 - y0 || 1)) * 0.45));
+  let dabs = '';
+  for (let y = y0 + 4; y < y1; y += 8 + R() * 3) {
+    const sh = (R() - 0.5) * 6;
+    for (let x = x0 + sh; x < x1; x += 9 + R() * 6) {
+      const L = lightAt(x, y);
+      if (R() > 0.25 + L * 0.6) continue;
+      const w = 6 + R() * 4, bend = 2 + R() * 2;
+      const col = L > 0.55 ? (R() < 0.3 ? '#f0d8b0' : '#c8ccd0') : (R() < 0.5 ? '#7a7e86' : '#8a6a50');
+      dabs += `<path d="M${r1(x - w / 2)} ${r1(y)}Q${r1(x)} ${r1(y - bend)} ${r1(x + w / 2)} ${r1(y + 1)}" stroke="${col}" stroke-width="${r1(2.6 + R() * 1.6)}" opacity="${r1((0.35 + L * 0.55) * (0.6 + R() * 0.4) * 100) / 100}"/>`;
+      if (R() < 0.35) dabs += `<path d="M${r1(x - 3)} ${r1(y + 4)}l${r1(6 + R() * 3)} ${r1(R() * 2)}" stroke="#1e1a18" stroke-width="3" opacity="0.5"/>`;
+    }
   }
-  const R = rng(seed);
-  let blooms = '';
-  for (let i = 0; i < 9; i++) blooms += `<ellipse cx="${r1(R() * c.w)}" cy="${r1(R() * c.h)}" rx="${r1(20 + R() * 40)}" ry="${r1(14 + R() * 30)}" fill="${R() < 0.5 ? '#8a4414' : '#5a2a0e'}" opacity="${r1(rust * (0.5 + R() * 0.5))}" filter="${c.blur(10)}"/>`;
-  return G(P(d, c.cache.mail) + c.inside(d, `<rect x="0" y="0" width="${c.w}" height="${c.h}" fill="${c.lgU([[0, '#ffffff', 0.25], [0.5, '#000000', 0.05], [1, '#000000', 0.55 + dark * 0.3]], 0, 0, c.w * 0.6, c.h)}"/>` + blooms),
-    `filter="${c.vol({ k: 8, b: 6, sc: '#06060a', so: 0.7, ho: 0.3, tex: 0.5, tf: 0.06, tc: '#4a200a', seed: 53 })}"`);
+  const base = c.lg([[0, '#6a6c70'], [0.35, '#44464a'], [0.75, '#2a2624'], [1, '#1e1814']], 0.15, 0, 0.85, 1);
+  return G(P(d, base) + c.inside(d,
+    c.glaze({ x0, y0, x1, y1, n: Math.max(6, Math.round(((x1 - x0) * (y1 - y0)) / 2500)), cols: ['#8a4a1c', '#5a2e10', '#3a3c40', '#a05a22'], op: rust * 0.45, size: 26, b: 6 }) +
+    `<g fill="none" stroke-linecap="round">${dabs}</g>` +
+    `<rect x="${r1(x0 - 10)}" y="${r1(y0 - 10)}" width="${r1(x1 - x0 + 20)}" height="${r1(y1 - y0 + 20)}" fill="${c.lgU([[0, '#ffe0b0', 0.12], [0.5, '#000000', 0], [1, '#2a1a12', 0.35 + dark * 0.25]], x0, y0, x1, y1)}"/>`),
+    `filter="${c.vol({ k: 8, b: 6, sc: '#2a1a12', so: 0.6, ho: 0.25, tex: 0.3, tf: 0.05, tc: '#4a200a', seed: 53 })}"`);
 }
 // Rusted iron: mottled orange-brown with pitting.
 const rustFill = (c) => c.lg([[0, '#e09048'], [0.3, '#a4561e'], [0.7, '#5e2c0e'], [1, '#241006']], 0.15, 0, 0.85, 1);
@@ -1296,8 +1431,8 @@ function wight(c, A) {
   const nasal = sm([[234, 90, 0.5], [246, 90, 0.5], [245, 132, 0.6], [240, 138, 0], [235, 132, 0.6]]);
   tor += P(nasal, rustFill(c), `filter="${rustVol(c)}"`);
   // cold blue eye-lights
-  for (const ex of [226, 254]) tor += `<circle cx="${ex}" cy="113" r="2.8" fill="${c.rgU([[0, '#ffffff'], [0.45, '#c8ecff'], [1, '#2a8aff']], ex, 113, 2.8)}"/>`;
-  for (const ex of [226, 254]) { const [gx, gy] = tp(ex, 113); glow += `<circle cx="${r1(gx)}" cy="${r1(gy)}" r="${A ? 6.5 : 4.5}" fill="#4aa8ff" opacity="${A ? 0.8 : 0.65}" filter="${c.blur(A ? 3.5 : 2.5)}"/><circle cx="${r1(gx)}" cy="${r1(gy)}" r="2.2" fill="#ffffff" opacity="0.95" filter="${c.blur(0.8)}"/>`; }
+  for (const ex of [226, 254]) tor += `<circle cx="${ex}" cy="113" r="4.6" fill="${c.rgU([[0, '#ffffff'], [0.4, '#c8ecff'], [1, '#2a8aff']], ex, 113, 4.6)}"/>`;
+  for (const ex of [226, 254]) { const [gx, gy] = tp(ex, 113); glow += `<circle cx="${r1(gx)}" cy="${r1(gy)}" r="${A ? 14 : 11}" fill="#4aa8ff" opacity="${A ? 0.6 : 0.5}" filter="${c.blur(A ? 6 : 5)}"/><circle cx="${r1(gx)}" cy="${r1(gy)}" r="3.4" fill="#ffffff" opacity="0.95" filter="${c.blur(1)}"/>`; }
   s += G(tor, `transform="${tr}"`);
 
   // ----- arms
@@ -1359,7 +1494,22 @@ function wight(c, A) {
     s += arm(ls, [324, 268], [300, 290], 1, true);
     s += shield(306, 290, 92);
   }
-  return `<g filter="${c.fx({ seed: 19 })}">${s}</g>${glow}`;
+  // grave-dust: a cold haze behind the head, dust stirred round the boots and
+  // motes drifting up through the light
+  const Rd = rng(A ? 19 : 18);
+  let dustBack = halo(c, 240 + T.dx, 116 + T.dy, 120, 100, '#7ab0e0', 0.2), dust = '';
+  for (let k = 0; k < 9; k++) {
+    const x = 150 + k * 22 + (Rd() - 0.5) * 20, y = 646 + (Rd() - 0.5) * 22, rx = 34 + Rd() * 26, ry = 12 + Rd() * 8;
+    const q = [];
+    for (let j = 0; j < 6; j++) { const th = (j / 6) * Math.PI * 2 + Rd(), rr = 0.7 + Rd() * 0.4; q.push([x + Math.cos(th) * rx * rr, y + Math.sin(th) * ry * rr]); }
+    const puff = `<path d="${sm(q)}" fill="${k % 3 ? '#b8a890' : '#8a96a8'}" opacity="${r1((0.22 + Rd() * 0.16) * 100) / 100}"/>`;
+    if (k % 2) dustBack += `<g filter="${c.blur(9)}">${puff}</g>`; else dust += `<g filter="${c.blur(7)}">${puff}</g>`;
+  }
+  for (let k = 0; k < 6; k++) {
+    const x = 150 + Rd() * 200, y = 540 + Rd() * 110;
+    dust += `<circle cx="${r1(x)}" cy="${r1(y)}" r="${r1(4.5 + Rd() * 2.5)}" fill="#e0d4bc" opacity="${r1((0.25 + Rd() * 0.25) * 100) / 100}" filter="${c.blur(2.5)}"/>`;
+  }
+  return `${dustBack}<g filter="${c.fx({ seed: 19 })}">${s}</g>${dust}${glow}`;
 }
 
 // ---------------------------------------------------------------- barrow king
@@ -1412,7 +1562,8 @@ function barrowking(c, A) {
   const ironV = c.vol({ k: 5, b: 4, sc: '#050506', so: 0.6, ho: 0.3, tex: 0.4, tf: 0.08, tc: '#3a1a08', seed: 74 });
   const op = A ? 1 : 0; // the cloak opens wider in the attack
 
-  const dropY = A ? 46 : 0; // the King sinks onto bent knees for the swing
+  const dropY = A ? 20 : 0; // the King sinks onto bent knees for the swing
+  let glowBack = '';
   const U = (x) => (A ? G(x, `transform="translate(0 ${dropY})"`) : x);
   let up = '';
   // high collar and the cloak's dark inside, behind everything
@@ -1444,11 +1595,19 @@ function barrowking(c, A) {
   for (let k = 0; k < 6; k++) torso += P(ell(320, 352 + k * 11, 11 - k * 0.3, 5.5), boneFill(c), `filter="${c.vol({ k: 2, b: 1.5, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
   // rib cage
   let ribs = P(sm([[262, 222], [378, 222], [394, 280], [380, 340], [320, 352], [260, 340], [246, 280]]), '#060303');
+  // ribs: every one different in spacing, sweep, droop and thickness; two
+  // are broken off short
+  const Rb = rng(A ? 61 : 60);
+  let ry = 230;
   for (let k = 0; k < 6; k++) {
-    const y = 232 + k * 19, w = 58 + Math.sin((k + 1) / 7 * Math.PI) * 18;
     for (const sd of [-1, 1]) {
-      ribs += P(rib([[320 + sd * 8, y, 8], [320 + sd * w * 0.6, y - 2, 9], [320 + sd * w, y + 10, 8], [320 + sd * (w - 4), y + 26, 6]]), boneFill(c), `filter="${c.vol({ k: 2.5, b: 2, sc: '#140e08', so: 0.65, ho: 0.35 })}"`);
+      const y = ry + (Rb() - 0.5) * 5, w = 56 + Math.sin(((k + 1) / 7) * Math.PI) * 18 + (Rb() - 0.5) * 10;
+      const droop = 22 + Rb() * 12 + k * 1.5, th = 7 + Rb() * 3.5, broken = (k === 2 && sd > 0) || (k === 4 && sd < 0);
+      const pts = [[320 + sd * 8, y, th], [320 + sd * w * 0.58, y - 3 + Rb() * 3, th + 1.5], [320 + sd * w, y + droop * 0.4, th], [320 + sd * (w - 6 - Rb() * 4), y + droop, th * 0.7]];
+      const use = broken ? [pts[0], pts[1], [lerp(pts[1][0], pts[2][0], 0.6), lerp(pts[1][1], pts[2][1], 0.6), th * 0.8]] : pts;
+      ribs += P(rib(use, 1, broken ? 0.2 : 1), boneFill(c), `filter="${c.vol({ k: 3, b: 2.5, sc: '#2a1a12', so: 0.65, ho: 0.35, rc: '#c88a5a', ro: 0.25 })}"`);
     }
+    ry += 17 + Rb() * 5;
   }
   ribs += P(rib([[320, 220, 14], [320, 290, 12], [320, 330, 9]]), boneFill(c), `filter="${c.vol({ k: 2.5, b: 2, sc: '#140e08', so: 0.6, ho: 0.35 })}"`);
   torso += ribs;
@@ -1503,12 +1662,22 @@ function barrowking(c, A) {
     s += boneFist(c, 314, 338, 90, 1) + boneFist(c, 326, 362, 90, -1);
   } else {
     s += U(panel(-1) + panel(1));
-    s += swordSvg([262, 70], [362, 60], [616, 44], 48);
-    s += arm([228, 232 + dropY], [176, 174], [296, 74], -1) + arm([412, 232 + dropY], [446, 166], [338, 66], 1);
-    s += boneFist(c, 296, 70, -6, 1) + boneFist(c, 336, 65, -6, -1);
+    // the blade cocked over his left shoulder, raised diagonally behind the
+    // crown, both hands on the grip, a faint trail of the upswing behind it
+    const guard = [424, 236], tip = [92, 30];
+    const L = Math.hypot(guard[0] - tip[0], guard[1] - tip[1]), u = [(guard[0] - tip[0]) / L, (guard[1] - tip[1]) / L];
+    const at = (d) => [guard[0] + u[0] * d, guard[1] + u[1] * d];
+    const ga = (Math.atan2(-u[1], -u[0]) * 180) / Math.PI;
+    let trail = [];
+    // a broad, soft smear of the upswing sweeping in from the left
+    for (let k = 0; k <= 8; k++) { const th = ((210 - k * 4.5) * Math.PI) / 180, rr = 300 + 70 * Math.sin((k / 8) * Math.PI) * 0.3; trail.push([452 + Math.cos(th) * rr, 254 + Math.sin(th) * rr, 90 * (1 - k / 8) + 10]); }
+    glowBack += `<path d="${rib(trail, 1, 0)}" fill="${c.lgU([[0, '#d8c8ff', 0.28], [0.6, '#a080ff', 0.1], [1, '#a080ff', 0]], trail[0][0], trail[0][1], trail[8][0], trail[8][1])}" filter="${c.blur(14)}"/>`;
+    s += swordSvg(at(76), guard, tip, 52);
+    s += arm([412, 232 + dropY], [506, 312], [470, 268], 1) + arm([228, 232 + dropY], [318, 320], [440, 252], -1);
+    s += boneFist(c, ...at(46), ga, -1) + boneFist(c, ...at(18), ga, 1);
   }
   // neck torc, skull and crown
-  const hx = 320, hy = 114 + dropY;
+  const hx = A ? 314 : 320, hy = 114 + dropY, hr = A ? -5 : 0;
   s += U(P(rib([[316, 150, 14], [320, 196, 16]]), boneFill(c), `filter="${c.vol({ k: 2.5, b: 2, sc: '#140e08', so: 0.6, ho: 0.35 })}"`) + torc(c, 320, 200, 52, 16, 11, 0.42));
   let head = skullFace(c, A ? 8 : 2, 76);
   // the crown: a gold band with tall points and a teal gem
@@ -1519,14 +1688,17 @@ function barrowking(c, A) {
     [-30, 30].map((x) => `<circle cx="${x}" cy="-33" r="4" fill="${c.rg([[0, '#ffd0e0'], [0.5, '#c02040'], [1, '#400810']], 0.35, 0.3, 0.8)}"/>`).join(''));
   head += P(sm([[0, -46], [9, -34], [0, -22], [-9, -34]]), c.rg([[0, '#e0fffa'], [0.35, '#40e0d0'], [0.8, '#0a7070'], [1, '#033030']], 0.35, 0.3, 0.8)) + `<circle cx="-3" cy="-38" r="2" fill="#ffffff" opacity="0.9"/>`;
   // violet eye-lights
-  for (const ex of [-16, 16]) head += `<circle cx="${ex}" cy="-1" r="3.4" fill="${c.rgU([[0, '#ffffff'], [0.45, '#e8c8ff'], [1, '#9a3aff']], ex, -1, 3.4)}"/>`;
-  s += G(head, `transform="translate(${hx} ${hy}) scale(1.08)"`);
+  for (const ex of [-16, 16]) head += `<circle cx="${ex}" cy="-1" r="5.5" fill="${c.rgU([[0, '#ffffff'], [0.4, '#ecd0ff'], [1, '#a040ff']], ex, -1, 5.5)}"/>`;
+  s += G(head, `transform="translate(${hx} ${hy}) rotate(${hr}) scale(1.08)"`);
+  const hpt = (x, y) => { const a = (hr * Math.PI) / 180; return [hx + (x * Math.cos(a) - y * Math.sin(a)) * 1.08, hy + (x * Math.sin(a) + y * Math.cos(a)) * 1.08]; };
   for (const ex of [-16, 16]) {
-    const gx = hx + ex * 1.08, gy = hy - 1;
-    glow += `<circle cx="${r1(gx)}" cy="${r1(gy)}" r="${A ? 6.5 : 4.5}" fill="#a050ff" opacity="${A ? 0.85 : 0.7}" filter="${c.blur(A ? 3.5 : 2.5)}"/><circle cx="${r1(gx)}" cy="${r1(gy)}" r="2.4" fill="#ffffff" opacity="0.95" filter="${c.blur(0.8)}"/>`;
+    const [gx, gy] = hpt(ex, -1);
+    glow += `<circle cx="${r1(gx)}" cy="${r1(gy)}" r="${A ? 15 : 12}" fill="#a050ff" opacity="${A ? 0.6 : 0.5}" filter="${c.blur(A ? 7 : 6)}"/><circle cx="${r1(gx)}" cy="${r1(gy)}" r="4" fill="#ffffff" opacity="0.9" filter="${c.blur(1.2)}"/>`;
   }
-  glow += `<circle cx="${hx}" cy="${r1(hy - 37)}" r="8" fill="#40f0e0" opacity="0.45" filter="${c.blur(5)}"/>`;
-  return `<g filter="${c.fx({ seed: 23 })}">${s}</g>${glow}`;
+  const [gmx, gmy] = hpt(0, -34);
+  glow += `<circle cx="${r1(gmx)}" cy="${r1(gmy)}" r="10" fill="#40f0e0" opacity="0.5" filter="${c.blur(5)}"/>`;
+  const behind = halo(c, hx, hy - 4, 150, 104, '#8a70d0', 0.22) + glowBack;
+  return `${behind}<g filter="${c.fx({ seed: 23 })}">${s}</g>${glow}`;
 }
 
 // ---------------------------------------------------------------- spider
@@ -1536,7 +1708,7 @@ function barrowking(c, A) {
 function spider(c, A) {
   const legV = c.vol({ k: 4, b: 3, sc: '#0c0402', so: 0.6, ho: 0.3, tex: 0.35, tf: 0.1, tc: '#140602', seed: 81 });
   const bodyV = c.vol({ k: 10, b: 8, sc: '#020104', so: 0.6, ho: 0.2, tex: 0.4, tf: 0.05, tc: '#000', seed: 82 });
-  const legFill = (dark) => (dark ? c.lg([[0, '#7a3e1a'], [0.5, '#4a200c'], [1, '#160804']], 0.1, 0, 0.9, 1) : c.lg([[0, '#d08a44'], [0.35, '#9a5222'], [0.75, '#5a260e'], [1, '#1e0a04']], 0.1, 0, 0.9, 1));
+  const legFill = (dark) => (dark ? c.lg([[0, '#7a3e1a'], [0.5, '#4a200c'], [1, '#160804']], 0.1, 0, 0.9, 1) : c.lg([[0, '#b8804e'], [0.35, '#7e4a26'], [0.75, '#4a2412'], [1, '#22120a']], 0.1, 0, 0.9, 1));
   let s = '', drips = '', glow = '';
   const dy = A ? -14 : 0;
   // one jointed leg: knots [x, y] from the body out to the tip, widths per knot
@@ -1552,12 +1724,12 @@ function spider(c, A) {
       const ang = (Math.atan2(uy, ux) * 180) / Math.PI;
       let br = '';
       const R = rng(seed + i * 7);
-      const n = Math.round(L / 4.4);
+      const n = Math.round(L / 7);
       for (let k = 0; k < n; k++) {
         const t = R(), sd = R() < 0.5 ? -1 : 1, w = lerp(ws[i], ws[i + 1], t) * 0.5;
         const x = a[0] + dx * t - uy * w * sd * 0.9, y = a[1] + dyy * t + ux * w * sd * 0.9;
-        const aa = ((ang + sd * (30 + R() * 22)) * Math.PI) / 180, len = 4 + R() * 6;
-        br += `<path d="M${r1(x)} ${r1(y)}l${r1(Math.cos(aa) * len)} ${r1(Math.sin(aa) * len)}" stroke="${R() < 0.25 && !dark ? '#e0a060' : '#120604'}" stroke-width="${r1(0.8 + R() * 0.6)}" opacity="${r1(0.6 + R() * 0.4)}"/>`;
+        const aa = ((ang + sd * (30 + R() * 22)) * Math.PI) / 180, len = 8 + R() * 7;
+        br += `<path d="M${r1(x)} ${r1(y)}l${r1(Math.cos(aa) * len)} ${r1(Math.sin(aa) * len)}" stroke="${R() < 0.25 && !dark ? '#e0a060' : '#120604'}" stroke-width="${r1(2.2 + R() * 1.2)}" opacity="${r1(0.6 + R() * 0.4)}"/>`;
       }
       out += `<g fill="none" stroke-linecap="round">${br}</g>`;
       out += c.inside(d, line(c, `M${r1(a[0] - uy * ws[i] * 0.25)} ${r1(a[1] + ux * ws[i] * 0.25)}L${r1(b[0] - uy * ws[i + 1] * 0.25)} ${r1(b[1] + ux * ws[i + 1] * 0.25)}`, dark ? '#a0602a' : '#f0b070', 2.4, 1.6, dark ? 0.3 : 0.55) +
@@ -1592,7 +1764,8 @@ function spider(c, A) {
     P(dia, c.lg([[0, '#e0c0ff'], [0.35, '#a060ff'], [0.75, '#6a28c8'], [1, '#2a0a60']], 0.2, 0, 0.8, 1)) +
     P(sm([[320, 112 + dy, 0.3], [334, 140 + dy, 0.4], [320, 172 + dy, 0.3], [306, 140 + dy, 0.4]]), c.lg([[0, '#3a1480'], [1, '#0c0420']], 0, 0, 0, 1)) +
     blob(c, dia, '#c890ff', 10, 0.35) +
-    c.strands({ x0: 180, y0: 50 + dy, x1: 460, y1: 250 + dy, n: 420, a: 0, spread: 180, len: 8, w: 1.1, cols: ['#000', '#4a4280', '#000'], op: 0.45, field: (x, y) => (Math.atan2(y - 260, x - 320) * 180) / Math.PI }) +
+    c.glaze({ x0: 180, y0: 50 + dy, x1: 460, y1: 250 + dy, n: 14, cols: ['#2a2260', '#4a3a90', '#140c24', '#3a1a50'], op: 0.3, size: 50, b: 10 }) +
+    c.strokes({ x0: 180, y0: 50 + dy, x1: 460, y1: 250 + dy, n: 90, len: 16, w: 5, cols: ['#0c0a18', '#4a4280', '#0c0a18'], op: 0.4, field: (x, y) => (Math.atan2(y - 260, x - 320) * 180) / Math.PI }) +
     blob(c, ell(320, 230 + dy, 150, 40), '#000', 18, 0.55) + blob(c, ell(250, 86 + dy, 40, 12, -25), '#d8d0ff', 8, 0.35));
   // second pair of legs
   s += leg(pairs[2].p, pairs[2].w, false, 320) + leg(mir(pairs[2].p), pairs[2].w, false, 420);
@@ -1600,7 +1773,7 @@ function spider(c, A) {
   const ceph = tuft([[320, 206 + dy], [374, 216 + dy], [398, 250 + dy], [392, 292 + dy], [360, 316 + dy], [320, 322 + dy], [280, 316 + dy], [248, 292 + dy], [242, 250 + dy], [266, 216 + dy]].map((p) => [...p, 1, 3]), { seed: 511, lean: 0.3, n: 3, jit: 0.8 });
   s += P(ceph, c.lg([[0, '#6a3a26'], [0.35, '#3a1a10'], [0.75, '#160806'], [1, '#050202']], 0.2, 0, 0.8, 1), `filter="${bodyV}"`);
   s += c.inside(ceph, line(c, `M320 ${214 + dy}L320 ${236 + dy}`, '#000', 4, 2, 0.6) + blob(c, ell(290, 226 + dy, 30, 12, -15), '#b07040', 10, 0.35) +
-    c.strands({ x0: 240, y0: 206 + dy, x1: 400, y1: 322 + dy, n: 140, a: 0, spread: 180, len: 7, w: 1, cols: ['#000', '#7a4a2a'], op: 0.5, field: (x, y) => (Math.atan2(y - 250 - dy, x - 320) * 180) / Math.PI }));
+    c.strokes({ x0: 240, y0: 206 + dy, x1: 400, y1: 322 + dy, n: 50, len: 14, w: 5, cols: ['#140804', '#8a5432'], op: 0.45, field: (x, y) => (Math.atan2(y - 250 - dy, x - 320) * 180) / Math.PI }));
   // front pair (in front of the body)
   s += leg(pairs[3].p, pairs[3].w, false, 330) + leg(mir(pairs[3].p), pairs[3].w, false, 430);
   // pedipalps
@@ -1624,10 +1797,10 @@ function spider(c, A) {
     s += c.inside(fang, line(c, `M${r1(base[0] - 2)} ${r1(base[1] + 2)}Q${r1(ctrl[0] - 2)} ${r1(ctrl[1])} ${r1(lerp(ctrl[0], tip[0], 0.6) - 1)} ${r1(lerp(ctrl[1], tip[1], 0.6))}`, '#ffffff', 1.6, 0.6, 0.7));
     // venom drip: a bead at the tip and a falling strand
     const dl = A ? 26 : 34;
-    drips += `<path d="${rib([[tip[0], tip[1] - 1, 4], [tip[0] + sd * 0.5, tip[1] + dl * 0.5, 2.5], [tip[0], tip[1] + dl, 5.5]], 0.4, 1.2)}" fill="${c.lgU([[0, '#d8ff70', 0.9], [0.6, '#8ae020', 0.85], [1, '#4aa010', 0.95]], tip[0], tip[1], tip[0], tip[1] + dl)}"/>` +
-      `<circle cx="${r1(tip[0] - 1.5)}" cy="${r1(tip[1] + dl - 1.5)}" r="1.6" fill="#ffffff" opacity="0.9"/>` +
-      `<ellipse cx="${r1(tip[0] + sd * 8)}" cy="${r1(tip[1] + dl + 26)}" rx="3" ry="4.5" fill="#9ae830" opacity="0.85"/>`;
-    glow += `<circle cx="${r1(tip[0])}" cy="${r1(tip[1] + dl * 0.6)}" r="12" fill="#8ae020" opacity="0.3" filter="${c.blur(6)}"/>`;
+    drips += `<path d="${rib([[tip[0], tip[1] - 1, 6], [tip[0] + sd * 0.5, tip[1] + dl * 0.5, 4.5], [tip[0], tip[1] + dl, 8]], 0.4, 1.2)}" fill="${c.lgU([[0, '#d8ff70', 0.9], [0.6, '#8ae020', 0.85], [1, '#4aa010', 0.95]], tip[0], tip[1], tip[0], tip[1] + dl)}"/>` +
+      `<circle cx="${r1(tip[0] - 2)}" cy="${r1(tip[1] + dl - 2)}" r="2.6" fill="#f4ffd0" opacity="0.9"/>` +
+      `<ellipse cx="${r1(tip[0] + sd * 8)}" cy="${r1(tip[1] + dl + 26)}" rx="5" ry="7" fill="#9ae830" opacity="0.8" filter="${c.blur(1)}"/>`;
+    glow += `<circle cx="${r1(tip[0])}" cy="${r1(tip[1] + dl * 0.6)}" r="18" fill="#8ae020" opacity="0.35" filter="${c.blur(8)}"/>`;
   }
   // the eyes: a cluster of glossy red beads
   const eyes = [[304, 254, 12.5], [336, 254, 12.5], [289, 233, 7.5], [351, 233, 7.5], [275, 252, 6.5], [365, 252, 6.5], [310, 226, 4.6], [330, 226, 4.6]];
@@ -1639,7 +1812,7 @@ function spider(c, A) {
     s += `<path d="M${r1(x + r * 0.2)} ${r1(y + r * 0.75)}A${r * 0.8} ${r * 0.8} 0 0 0 ${r1(x + r * 0.78)} ${r1(y + r * 0.1)}" fill="none" stroke="#9fc4ff" stroke-width="${r1(Math.max(1, r * 0.12))}" opacity="0.6"/>`;
     glow += `<circle cx="${x}" cy="${y}" r="${r * 1.6}" fill="#ff2a10" opacity="${A ? 0.4 : 0.28}" filter="${c.blur(r * 0.7)}"/>`;
   }
-  return `<g filter="${c.fx({ seed: 29 })}">${s}</g>${drips}${glow}`;
+  return `${halo(c, 320, 170 + dy, 230, 160, '#b070d0', 0.16)}<g filter="${c.fx({ seed: 29 })}">${s}</g>${drips}${glow}`;
 }
 
 // ---------------------------------------------------------------- registry

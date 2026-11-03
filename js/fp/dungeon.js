@@ -221,8 +221,9 @@ export class Level {
         // Statues: both layers of the billboard tinted to cold stone.
         obj.material = obj.material.clone();
         obj.material.color.set('#8a8a96');
+        obj.material.emissive.set('#4a4a52');
         const veil = obj.children[0];
-        if (veil) { veil.material = veil.material.clone(); veil.material.color.set('#8a8a96'); }
+        if (veil) { veil.material = veil.material.clone(); veil.material.color.set('#8a8a96'); veil.material.emissive.set('#4a4a52'); }
         this.billboards.push(obj);
         this.statues.push(obj);
       }

@@ -1,20 +1,22 @@
 // Obsidian Spire, modern first-person mode: painted illustrations of the
 // people met on the road, as standalone SVG strings. Each one is rasterised
-// once (Image -> canvas) and stood in the scene as a lit billboard; `hand`
-// is the player's own sword hand, a screen overlay for the bottom-right
-// corner (no world height), and there `attack` is the mid-swing frame. For
-// people `attack` is a gesture.
+// once (Image -> canvas), run through the shared oil-paint pass (paint.js)
+// and stood in the scene as a lit billboard; `hand` is the player's own
+// sword hand, a screen overlay for the bottom-right corner (no world
+// height), and there `attack` is the mid-swing frame. For people `attack`
+// is a gesture.
 //
-// Shared style: warm key light from the upper left (#ffd9a0), cool rim light
-// from behind on the right (#9fc4ff), deep shadows that are never black, a
-// 2-3 px umber outline on the outer silhouette only, and a fine grain
-// clipped to the figure. Forms are built from layered gradients with soft,
-// clipped shading passes. Every id is prefixed `<key>-<frame>-`.
+// Shared style: painted, not inked. A warm key light from the upper left
+// (#ffd9a0), deep warm shadows (#2a1a12) with warm light reflected from
+// below, a cool rim from behind on the right (#9fc4ff), and lost-and-found
+// edges: shadow-side contours dissolve, lit contours stay crisp. Forms are
+// glazed from overlapping semi-transparent shapes and tapered brush strokes
+// that follow folds, hair and feathers. Every id is prefixed `<key>-<frame>-`.
 
 const OUT = '#1a1210';
 const KEY = '#ffd9a0';
 const RIM = '#9fc4ff';
-const DEEP = '#1d1420';
+const DEEP = '#2a1a12';
 
 // ---------------------------------------------------------------- colour
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -104,40 +106,53 @@ function clipD(c, d, tf = '') {
   return c.def(n, `<clipPath id="@ID"><path d="${d}"${tf ? ` transform="${tf}"` : ''}/></clipPath>`);
 }
 
-// The figure filter: umber outline on the outer silhouette, a soft fall-off
-// of the key light (a flat diffuse-lit plane, multiplied in), painterly
-// mottling, cool rim along right-hand edges, a warm catch along upper-left
-// edges, and a fine grain, all clipped to the figure.
+// The figure filter. In order: the key light's falloff across the figure
+// (a flat plane lit by a point light, multiplied in); form light that rounds
+// the silhouette (a blurred-alpha height map lit from the upper left);
+// warm light reflected up from the ground; lost edges (the shadow-side
+// contours, lower right, are swapped for a softened copy while lit
+// contours stay crisp); a cool rim on right-hand edges; a warm catch on
+// upper-left edges; a faint grain. No outline. The region overhangs the
+// canvas so figures cropped by its edges (the hand) keep a clean cut.
 function figFilter(c, o = {}) {
   const { w, h } = c;
-  const ow = o.ow ?? 2.4;
-  const grain = o.grain ?? 0.1;
-  const lx = o.lx ?? w * 0.3;
-  const ly = o.ly ?? -h * 0.1;
-  const lz = o.lz ?? h * 0.72;
-  const kd = o.kd ?? 1.28;
-  return c.def('fx', `<filter id="@ID" filterUnits="userSpaceOnUse" x="0" y="0" width="${w}" height="${h}" color-interpolation-filters="sRGB">
-<feMorphology in="SourceAlpha" operator="dilate" radius="${ow}" result="dil"/>
-<feFlood flood-color="${OUT}"/><feComposite in2="dil" operator="in" result="ink"/>
-<feDiffuseLighting in="SourceAlpha" surfaceScale="0" diffuseConstant="${kd}" lighting-color="#fff6ea" result="lt"><fePointLight x="${lx}" y="${ly}" z="${lz}"/></feDiffuseLighting>
-<feComposite in="SourceGraphic" in2="lt" operator="arithmetic" k1="1" k2="0" k3="0" k4="0" result="shd"/>
-<feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="3" seed="${o.seed ?? 4}" result="mn"/>
-<feColorMatrix in="mn" type="matrix" values="1.5 0 0 0 -0.28  1.4 0 0 0 -0.27  1.3 0 0 0 -0.26  0 0 0 0 ${o.mottle ?? 0.05}" result="mc"/>
-<feComposite in="mc" in2="SourceAlpha" operator="in" result="mot"/>
+  const lx = o.lx ?? w * 0.2;
+  const ly = o.ly ?? -h * 0.15;
+  const lz = o.lz ?? h * 0.4;
+  const kd = o.kd ?? 1.48;
+  const fr = o.formBlur ?? 9;
+  const fs = o.formScale ?? 7;
+  const pad = 140;
+  return c.def('fx', `<filter id="@ID" filterUnits="userSpaceOnUse" x="${-pad}" y="${-pad}" width="${w + 2 * pad}" height="${h + 2 * pad}" color-interpolation-filters="sRGB">
+<feDiffuseLighting in="SourceAlpha" surfaceScale="0" diffuseConstant="${kd}" lighting-color="#fff2e2" result="lt"><fePointLight x="${lx}" y="${ly}" z="${lz}"/></feDiffuseLighting>
+<feGaussianBlur in="SourceAlpha" stdDeviation="${fr}" result="hb"/>
+<feDiffuseLighting in="hb" surfaceScale="${fs}" diffuseConstant="1.18" lighting-color="#fff0e0" result="fl"><feDistantLight azimuth="225" elevation="44"/></feDiffuseLighting>
+<feComposite in="SourceGraphic" in2="lt" operator="arithmetic" k1="1" result="s1"/>
+<feComposite in="s1" in2="fl" operator="arithmetic" k1="${o.formGain ?? 1.2}" result="s2"/>
+<feDiffuseLighting in="SourceAlpha" surfaceScale="0" diffuseConstant="${o.bounce ?? 0.55}" lighting-color="#ff9a52" result="rl"><fePointLight x="${w * 0.55}" y="${h * 1.08}" z="${h * 0.16}"/></feDiffuseLighting>
+<feComposite in="rl" in2="SourceAlpha" operator="in" result="rl2"/>
+<feComposite in="s2" in2="rl2" operator="arithmetic" k2="1" k3="0.2" result="lit"/>
+<feOffset in="SourceAlpha" dx="-3.5" dy="-3" result="ao"/>
+<feComposite in="SourceAlpha" in2="ao" operator="out" result="band0"/>
+<feGaussianBlur in="band0" stdDeviation="2.2" result="band"/>
+<feGaussianBlur in="lit" stdDeviation="${o.lost ?? 1.7}" result="soft"/>
+<feComposite in="lit" in2="band" operator="out" result="crisp"/>
+<feComposite in="soft" in2="band" operator="in" result="softb"/>
+<feComposite in="crisp" in2="softb" operator="arithmetic" k2="1" k3="1" result="lost"/>
 <feOffset in="SourceAlpha" dx="-4" dy="1" result="o1"/>
 <feComposite in="SourceAlpha" in2="o1" operator="out" result="r1"/>
-<feGaussianBlur in="r1" stdDeviation="0.9" result="r2"/>
-<feFlood flood-color="${RIM}" flood-opacity="${o.rim ?? 0.8}"/><feComposite in2="r2" operator="in" result="rim"/>
+<feGaussianBlur in="r1" stdDeviation="1.4" result="r2"/>
+<feFlood flood-color="${RIM}" flood-opacity="${o.rim ?? 0.7}"/><feComposite in2="r2" operator="in" result="rim"/>
 <feOffset in="SourceAlpha" dx="3" dy="3" result="o2"/>
 <feComposite in="SourceAlpha" in2="o2" operator="out" result="k1"/>
-<feGaussianBlur in="k1" stdDeviation="1.1" result="k2"/>
-<feFlood flood-color="${KEY}" flood-opacity="0.3"/><feComposite in2="k2" operator="in" result="keyl"/>
+<feGaussianBlur in="k1" stdDeviation="1.2" result="k2"/>
+<feFlood flood-color="${KEY}" flood-opacity="0.34"/><feComposite in2="k2" operator="in" result="keyl"/>
 <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" result="nz"/>
-<feColorMatrix in="nz" type="matrix" values="1.7 0 0 0 -0.32  1.7 0 0 0 -0.34  1.7 0 0 0 -0.36  0 0 0 0 ${grain}" result="gr"/>
+<feColorMatrix in="nz" type="matrix" values="1.7 0 0 0 -0.32  1.7 0 0 0 -0.34  1.7 0 0 0 -0.36  0 0 0 0 ${o.grain ?? 0.025}" result="gr"/>
 <feComposite in="gr" in2="SourceAlpha" operator="in" result="grain"/>
 <feComposite in="rim" in2="SourceAlpha" operator="in" result="rim2"/>
 <feComposite in="keyl" in2="SourceAlpha" operator="in" result="key2"/>
-<feMerge><feMergeNode in="ink"/><feMergeNode in="shd"/><feMergeNode in="mot"/><feMergeNode in="key2"/><feMergeNode in="rim2"/><feMergeNode in="grain"/></feMerge>
+<feMerge><feMergeNode in="lost"/><feMergeNode in="key2"/><feMergeNode in="rim2"/><feMergeNode in="grain"/></feMerge>
 </filter>`);
 }
 
@@ -182,42 +197,47 @@ function mirrorPath(start, segs) {
 // ---------------------------------------------------------------- faces
 // A head in local coordinates: crown y=-46, eye line y=0, chin y=+47,
 // cheekbones at x=+-36. Options pick skin, eyes, expression and age.
+// A painted eye, side 1 = the figure's left (viewer's right). Built to
+// survive the paint pass: a dark socket mass, a dim eye opening mostly
+// filled by a large iris, a heavy upper lid with its cast shadow, and a
+// catchlight big enough to keep.
 function eyeShape(c, side, o) {
   const op = o.open ?? 1;
   const lo = o.low ?? 1;
   const iris = o.iris;
   const gz = (o.gaze ?? 0) * side;
-  const white = `M-8.4 0.9 C-5.6 ${f2(-4.4 * op)} 3 ${f2(-5.8 * op)} 9 0.3 C5 ${f2(3.3 * lo)} -3 ${f2(3.8 * lo)} -8.4 0.9Z`;
+  const sk = o.skin;
+  const shade = side > 0 ? 1 : 0.8;
+  const white = `M-9 1 C-6 ${f2(-4.8 * op)} 3 ${f2(-6.2 * op)} 9.6 0.4 C5 ${f2(3.6 * lo)} -3 ${f2(4.2 * lo)} -9 1Z`;
   const ck = clipD(c, white);
-  const ir = 4.2 * (o.irisR ?? 1);
-  const lid = dk(o.skin, 0.72);
+  const ir = 4.9 * (o.irisR ?? 1);
   let s = '';
-  // the lid's skin fold and socket above the eye
-  s += S(c, `M-9.6 0.6 C-6 ${f2(-6.4 * op - 1.6)} 4 ${f2(-8 * op - 1.6)} 10.4 0 C5 ${f2(-5.2 * op)} -4 ${f2(-4.4 * op)} -9.6 0.6Z`, dk(o.skin, 0.25), 0.7, 0.6);
-  s += P(white, L(c, [0, 0, 0, 1], [[0, '#8a7a72'], [0.5, '#d6cabd'], [1, '#e8dfd2']]));
+  // socket: brow ridge shadow and the hollow around the eye
+  s += E(c, 0.5, -1.5, 13.5, 9.5, dk(sk, 0.62), 0.5 * shade, 2.6);
+  s += E(c, 1, -2.5, 10.5, 6.5, dk(sk, 0.75), 0.45 * shade, 1.6);
+  // eye opening: a dim, warm white, darker under the lid
+  s += P(white, L(c, [0, 0, 0, 1], [[0, mix(sk, '#6a5a52', 0.5)], [0.55, mix('#d6cabd', sk, 0.25)], [1, mix('#e0d6c8', sk, 0.2)]]));
   s += `<g clip-path="${ck}">`;
-  s += `<circle cx="${f2(gz)}" cy="-0.2" r="${f2(ir)}" fill="${R(c, [0.5, 0.5, 0.5, 0.6, 0.72], [[0, lit(iris, 0.5)], [0.5, iris], [0.84, dk(iris, 0.45)], [1, dk(iris, 0.8)]])}"/>`;
-  s += `<circle cx="${f2(gz)}" cy="-0.2" r="${f2(ir * 0.42)}" fill="#120a0a"/>`;
-  s += S(c, `M-10 -8 L10 -8 L10 ${f2(-1.4 * op)} C3 ${f2(-3.2 * op)} -4 ${f2(-2.4 * op)} -10 0.4Z`, dk(o.skin, 0.65), 0.62, 0.9);
+  s += `<circle cx="${f2(gz)}" cy="-0.2" r="${f2(ir)}" fill="${R(c, [0.5, 0.5, 0.5, 0.55, 0.75], [[0, lit(iris, 0.35)], [0.55, dk(iris, 0.1)], [0.85, dk(iris, 0.55)], [1, dk(iris, 0.8)]])}"/>`;
+  s += `<circle cx="${f2(gz)}" cy="-0.2" r="${f2(ir * 0.45)}" fill="#160c0a"/>`;
+  s += S(c, `M-11 -9 L11 -9 L11 ${f2(-0.6 * op)} C3 ${f2(-2.6 * op)} -4 ${f2(-1.8 * op)} -11 1.2Z`, dk(sk, 0.75), 0.7, 1);
   s += `</g>`;
-  s += `<circle cx="${f2(gz - 1.3 * side)}" cy="-1.9" r="1.1" fill="#fffaf0" opacity="0.92"/>`;
-  s += `<circle cx="${f2(gz + 1.5 * side)}" cy="1.1" r="0.45" fill="#fffaf0" opacity="0.5"/>`;
-  // upper lid edge: heavier toward the outer corner
-  s += Ln(c, `M-9 1 C-5.8 ${f2(-5.1 * op)} 3 ${f2(-6.6 * op)} 9.6 0.5`, o.lash || lid, 1.1);
-  s += Ln(c, `M1 ${f2(-5.8 * op)} C4.6 ${f2(-5.8 * op)} 7.6 ${f2(-3.2 * op)} 9.6 0.5`, o.lash || lid, 1.6);
-  if (o.lashes) s += Ln(c, 'M9.3 0.4 L11.2 -1', o.lash || lid, 1);
-  // crease
-  s += Ln(c, `M-7.6 ${f2(-5.6 * op - 2)} C-3 ${f2(-8.8 * op - 2)} 4 ${f2(-9.2 * op - 2)} 9 ${f2(-3.8 * op - 1.6)}`, dk(o.skin, 0.55), 1.1, 0.55, 0.35);
-  // lower lid and a soft bag under it
-  s += Ln(c, `M-6.4 2.8 C-2 ${f2(4.6 * lo)} 4 ${f2(4.4 * lo)} 8 1.6`, dk(o.skin, 0.4), 0.9, 0.55, 0.3);
-  s += Ln(c, `M-5 ${f2(5.4 * lo + 1)} C-1 ${f2(7 * lo + 1)} 4 ${f2(6.6 * lo + 1)} 7 ${f2(4 * lo + 1)}`, dk(o.skin, 0.3), 1.2, 0.3 + 0.3 * (o.age ?? 0), 0.6);
+  // heavy upper lid and its crease
+  s += Ln(c, `M-9.4 1.2 C-6 ${f2(-5.2 * op)} 3 ${f2(-6.8 * op)} 10 0.6`, mix(dk(sk, 0.85), '#1c0e0a', 0.5), 2.8);
+  s += Ln(c, `M-8 ${f2(-6.4 * op - 2.4)} C-3 ${f2(-9.8 * op - 2.4)} 4 ${f2(-10.2 * op - 2.4)} 9.6 ${f2(-4.6 * op - 2)}`, dk(sk, 0.6), 2.2, 0.5, 0.8);
+  // lit lid skin above the crease, catching the key light
+  s += E(c, -1, -9.5 * op - 2, 7, 2.6, lit(sk, 0.45), 0.5 * (2 - shade), 1.4);
+  // catchlight and lit lower lid rim
+  s += `<circle cx="${f2(gz - 1.8 * side)}" cy="-2" r="2" fill="#fff6e8" opacity="0.95"/>`;
+  s += Ln(c, `M-6 3.4 C-2 ${f2(5.2 * lo)} 4 ${f2(5 * lo)} 8 2`, lit(sk, 0.35), 1.6, 0.45, 0.4);
+  s += Ln(c, `M-5 ${f2(6 * lo + 1.5)} C-1 ${f2(7.8 * lo + 1.5)} 4 ${f2(7.4 * lo + 1.5)} 7.4 ${f2(4.6 * lo + 1.5)}`, dk(sk, 0.4), 2, 0.25 + 0.35 * (o.age ?? 0), 1);
   return s;
 }
 
 function brow(c, o, rot) {
   const t = o.browW ?? 1;
   const d = `M-10 ${f2(-8 + 1.5 * (t - 1))} C-5 ${f2(-12.5 - 1.5 * t)} 4 ${f2(-13 - t)} 12 -9 C5 ${f2(-10.4 - 0.4 * t)} -3 -10.2 -10 ${f2(-7 + 2.2 * (t - 1))}Z`;
-  let s = S(c, d, o.brow, 1, 0.35);
+  let s = S(c, d, o.brow, 1, 0.35) + S(c, d, o.brow, 0.6, 1.2);
   if (t > 1.2) {
     for (let i = 0; i < 7; i++) {
       const x = -9 + i * 3;
@@ -344,6 +364,19 @@ function face(c, o) {
     s += Ln(c, `M-10.6 ${f2(31 - up)} C-5 ${f2(32 + up * 0.5)} 5 ${f2(32 + up * 0.5)} 10.6 ${f2(31 - up)}`, ml, 1.3, 0.9);
     if (up > 0) s += Ln(c, 'M-11 21 C-14.5 24 -15.5 28 -14 31.5 M11 21 C14.5 24 15.5 28 14 31.5', Sd, 1.3, 0.3, 0.9);
   }
+  // chiaroscuro: a shadow plane with a defined terminator down the far side
+  // of the face, the nose's cast shadow, warm reflected light under the jaw,
+  // and the lit planes of brow, cheekbone and chin.
+  let cs = '';
+  const term = `M${f2(cw * 0.3)} -48 C${f2(cw * 0.18)} -30 ${f2(cw * 0.32)} -14 8 -4 C10 6 9 14 11 22 C13 30 ${f2(jw * 0.5)} 40 ${f2(jw * 0.3)} ${cl + 4} L${cw + 12} ${cl + 4} L${cw + 12} -48Z`;
+  cs += S(c, term, mix(dk(skin, 0.6), '#3a1c10', 0.3), o.plane ?? 0.42, 2.4);
+  cs += S(c, 'M4 18 C10 21 14 24 15 30 C10 28 6 25 3 22Z', dk(skin, 0.7), 0.4, 1.6);
+  cs += E(c, cw * 0.62, 30, 10, 9, '#ff9a60', 0.16, 4);
+  cs += E(c, -cw * 0.52, -30, 15, 9, lit(skin, 0.7), 0.3, 4);
+  cs += E(c, -cw * 0.58, 6, 9, 6, lit(skin, 0.6), 0.32, 3);
+  cs += E(c, -4, cl - 7, 7, 4, lit(skin, 0.6), 0.26, 2);
+  cs += E(c, 0, -14, 9, 3, lit(skin, 0.5), 0.25, 2);
+  s += `<g clip-path="${clipD(c, head)}">${cs}</g>`;
   return s;
 }
 
@@ -432,6 +465,68 @@ function ribbon(pts, wfn, n = 12) {
   return `M${A.map((p) => p.map(f2).join(' ')).join(' L')} L${B.reverse().map((p) => p.map(f2).join(' ')).join(' L')}Z`;
 }
 const polyD = (pts) => `M${pts.map((p) => p.map(f2).join(' ')).join(' L')}`;
+
+// ---------------------------------------------------------------- brushwork
+// A small seeded random generator so the brushwork is stable between loads.
+function rng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+// One tapered brush stroke through points (wider in the middle).
+function brush(c, pts, w, col, op = 0.5, b = 0.8) {
+  return S(c, ribbon(pts, (t) => w * Math.sin(Math.PI * (0.08 + 0.84 * t)) ** 0.7, 5), col, op, b);
+}
+// An irregular glaze patch: a lumpy blob of semi-transparent colour.
+function glazeBlob(c, cx, cy, rx, ry, col, op, seed, b = 3) {
+  const r = rng(seed);
+  const n = 9;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const k = 0.72 + r() * 0.5;
+    pts.push([cx + Math.cos(a) * rx * k, cy + Math.sin(a) * ry * k]);
+  }
+  pts.push(pts[0], pts[1], pts[2]);
+  return S(c, `${polyD(spline(pts, 4).slice(4, 4 + n * 4))}Z`, col, op, b);
+}
+// Drapery brushwork over a box: strokes running down the folds (angle in
+// degrees from vertical), lights on the lit side, darks toward the right,
+// plus a few glaze patches. Meant to be clipped to a cloth shape.
+function drape(c, box, base, seed, o = {}) {
+  const [x0, y0, x1, y1] = box;
+  const r = rng(seed);
+  const n = o.n ?? Math.round(((x1 - x0) * (y1 - y0)) / 1800);
+  const ang = ((o.angle ?? 0) * Math.PI) / 180;
+  const len = o.len ?? (y1 - y0) * 0.45;
+  let s = '';
+  for (let i = 0; i < Math.round(n * 0.35); i++) {
+    const cx = x0 + r() * (x1 - x0);
+    const cy = y0 + r() * (y1 - y0);
+    const t = (cx - x0) / (x1 - x0);
+    s += glazeBlob(c, cx, cy, 14 + r() * 22, 18 + r() * 30, t < 0.45 ? lit(base, 0.35) : dk(base, 0.45), 0.16 + r() * 0.12, seed * 31 + i, 4);
+  }
+  for (let i = 0; i < n; i++) {
+    const cx = x0 + r() * (x1 - x0);
+    const cy = y0 + r() * (y1 - y0);
+    const t = (cx - x0) / (x1 - x0);
+    const l = len * (0.5 + r() * 0.7);
+    const a = ang + (r() - 0.5) * 0.25 + (o.fan ?? 0) * (t - 0.5);
+    const bend = (r() - 0.5) * 12;
+    const dx = Math.sin(a) * l * 0.5;
+    const dy = Math.cos(a) * l * 0.5;
+    const pts = [[cx - dx, cy - dy], [cx + bend, cy], [cx + dx, cy + dy]];
+    const light = r() < 0.75 - t * 0.6;
+    const col = light ? lit(base, 0.3 + r() * 0.35) : dk(base, 0.3 + r() * 0.4);
+    s += brush(c, pts, (o.w ?? 7) * (0.7 + r() * 0.7), col, light ? 0.22 + r() * 0.2 : 0.25 + r() * 0.2, 0.9);
+  }
+  return s;
+}
 
 // A fist around a vertical pole through (0,0), knuckles toward the viewer:
 // four finger rolls stacked down, the thumb wrapped over the top.
@@ -555,7 +650,7 @@ function merchant(frame) {
 
   // tunic
   const tunic = 'M210 160 C192 164 170 170 154 178 C140 184 128 196 124 214 C118 240 118 262 122 280 C112 310 110 350 120 384 C130 412 170 430 240 430 C310 430 350 412 360 384 C370 350 368 310 358 280 C362 262 362 240 356 214 C352 196 340 184 326 178 C310 170 288 164 270 160Z';
-  s += part(c, tunic, cyl(c, green, [0, 0.1, 1, 0.3]),
+  s += part(c, tunic, cyl(c, green, [0, 0.1, 1, 0.3]), drape(c, [112, 160, 368, 430], green, 72, { w: 7 }) +
     E(c, 176, 226, 44, 44, lit(green, 0.55), 0.4, 14) +
     E(c, 340, 300, 26, 100, DEEP, 0.4, 12) +
     fold('M134 386 C150 408 176 418 200 420 M346 386 C330 408 304 418 280 420', 4, 0.5, 3) +
@@ -590,7 +685,7 @@ function merchant(frame) {
   const stitch = (d) => Ln(c, d, '#e2c294', 1.2, 0.6, 0, ' stroke-dasharray="4 3"');
   ash += stitch('M204 206 C203 236 201 262 196 290 M276 206 C277 236 279 262 284 290');
   ash += stitch('M143 480 C131 440 128 400 134 354 M337 480 C349 440 352 400 346 354 M168 490 C210 494 270 494 312 490');
-  s += part(c, apron, flat(c, leather, [0, 0, 1, 0.8]), ash);
+  s += part(c, apron, flat(c, leather, [0, 0, 1, 0.8]), drape(c, [126, 200, 356, 500], leather, 71, { w: 8, len: 70, fan: 0.6 }) + ash + `<rect x="120" y="190" width="240" height="320" fill="${L(c, [0, 0, 1, 0], [[0, DEEP, 0.6], [0.16, KEY, 0.12], [0.36, KEY, 0.2], [0.55, KEY, 0], [0.8, DEEP, 0.4], [1, DEEP, 0.78]])}"/>` + E(c, 214, 360, 60, 70, KEY, 0.16, 18) + E(c, 240, 486, 130, 22, DEEP, 0.45, 10));
   // straps and rivets
   s += part(c, 'M200 202 L210 201 L226 160 L215 157Z', cyl(c, leather, [0, 0, 1, 0]));
   s += part(c, 'M280 202 L270 201 L254 160 L265 157Z', dk(leather, 0.3));
@@ -757,7 +852,7 @@ function priest(frame) {
   rsh += E(c, 160, 300, 40, 90, '#fffaf0', 0.4, 18);
   rsh += Ln(c, 'M104 660 C150 674 300 674 348 660', vio, 22) + Ln(c, 'M106 650 C150 662 300 662 346 650', gold, 2.2);
   rsh += Ln(c, 'M104 666 C150 678 300 678 348 666', '#2a1450', 6, 0.6, 2);
-  s += part(c, robe, white(), rsh);
+  s += part(c, robe, white(), drape(c, [104, 200, 350, 672], '#e8e0dc', 61, { w: 8 }) + rsh);
   s += toes(c, 198, 660, skin) + toes(c, 256, 660, dk(skin, 0.12));
 
   // front panel (orphrey) with gold suns
@@ -889,42 +984,64 @@ function steward(frame) {
   let s = '';
   const cx = 240;
 
-  // legs and shoes
-  for (const [x, i] of [[214, 0], [266, 1]]) {
-    s += part(c, `M${x - 24} 466 C${x - 25} 500 ${x - 23} 530 ${x - 20} 550 C${x - 21} 575 ${x - 20} 595 ${x - 18} 612 L${x + 18} 612 C${x + 20} 595 ${x + 21} 575 ${x + 20} 550 C${x + 23} 530 ${x + 25} 500 ${x + 24} 466Z`, cyl(c, hose, [0, 0, 1, 0]),
-      E(c, x, 474, 30, 20, DEEP, 0.7, 6) + fold(`M${x - 10} 540 q 10 6 20 0`, 2.4, 0.4, 1.4) + E(c, x - 6, 530, 6, 14, lit(hose, 0.5), 0.35, 4));
+  const fur = '#6a4a30';
+  // fur: a soft mass with tapered tufts along its edges
+  const furMass = (d, box, seed, base = fur) => {
+    const r = rng(seed);
+    let t = drape(c, box, base, seed, { w: 6, len: 22, n: 26, angle: 15 });
+    for (let i = 0; i < 18; i++) {
+      const x = box[0] + r() * (box[2] - box[0]);
+      const y = box[1] + r() * (box[3] - box[1]);
+      t += brush(c, [[x, y], [x + 3 + r() * 4, y + 8], [x + 2 + r() * 6, y + 16]], 5 + r() * 3, r() < 0.5 ? lit(base, 0.55) : dk(base, 0.55), 0.35, 0.6);
+    }
+    return part(c, d, cyl(c, base, [0, 0, 1, 0.3]), t);
+  };
+  // hose and shoes
+  for (const [x, i] of [[216, 0], [264, 1]]) {
+    s += part(c, `M${x - 19} 540 C${x - 20} 570 ${x - 19} 595 ${x - 17} 612 L${x + 17} 612 C${x + 19} 595 ${x + 20} 570 ${x + 19} 540Z`, cyl(c, hose, [0, 0, 1, 0]),
+      E(c, x, 548, 26, 14, DEEP, 0.75, 6));
     const sx = x + (i ? 6 : -6);
     s += part(c, `M${sx - 20} 604 L${sx + 20} 604 C${sx + 24} 616 ${sx + 28 + (i ? 6 : -2)} 628 ${sx + 26 + (i ? 4 : -2)} 640 L${sx - 26 + (i ? 2 : -4)} 640 C${sx - 28 + (i ? 2 : -6)} 628 ${sx - 24} 616 ${sx - 20} 604Z`, cyl(c, '#4a2614', [0, 0, 1, 0.3]),
       E(c, sx - 4, 622, 12, 6, lit('#4a2614', 0.6), 0.55, 3) + E(c, sx, 638, 30, 3, DEEP, 0.7, 1.2));
   }
 
-  // blue doublet body
-  // doublet skirt, flared, then the body
-  s += part(c, 'M152 356 L328 356 C336 390 344 430 352 470 C310 486 170 486 128 470 C136 430 144 390 152 356Z', cyl(c, dk(blue, 0.1), [0, 0, 1, 0.2]),
-    fold('M170 380 C164 410 158 440 154 476 M200 384 C198 420 196 450 194 482 M282 384 C284 420 286 450 288 482 M312 380 C318 410 324 440 328 476', 6, 0.5, 3.4) +
-    fold('M178 382 C172 412 166 444 162 478 M208 386 C206 420 204 450 202 482', 2.4, 0.4, 1.4, lit(blue, 0.6)) + E(c, 240, 362, 100, 10, DEEP, 0.6, 5));
-  const body = 'M208 162 C188 164 168 170 156 180 C144 192 140 214 142 240 C142 286 146 326 152 362 L328 362 C334 326 338 286 338 240 C340 214 336 192 324 180 C312 170 292 164 272 162Z';
-  s += part(c, body, cyl(c, blue, [0, 0.1, 1, 0.3]), E(c, 328, 290, 18, 110, DEEP, 0.5, 10) + E(c, 170, 220, 30, 50, lit(blue, 0.5), 0.3, 12));
+  // the long blue robe, flaring to a fur-trimmed hem
+  const robe = 'M206 160 C184 162 164 168 152 180 C140 194 138 220 140 250 C140 330 132 430 120 556 C170 572 310 572 360 556 C348 430 340 330 340 250 C342 220 340 194 328 180 C316 168 296 162 274 160Z';
+  s += part(c, robe, cyl(c, blue, [0, 0.1, 1, 0.3]),
+    drape(c, [120, 180, 360, 566], blue, 11, { w: 8, fan: 0.3 }) +
+    fold('M160 330 C154 420 146 490 136 556 M326 330 C330 420 336 490 346 556', 10, 0.45, 6) + E(c, 340, 400, 22, 150, DEEP, 0.5, 14));
+  s += furMass('M120 548 C170 566 310 566 360 548 L362 566 C310 586 170 586 118 566Z', [116, 544, 364, 586], 21);
 
-  // tabard
-  const tab = 'M190 180 C210 172 270 172 290 180 L300 470 C298 478 292 482 284 482 L196 482 C188 482 182 478 180 470Z';
+  // crimson tabard in the robe's open front
+  const tab = 'M194 176 C212 170 268 170 286 176 L294 528 C292 536 286 540 278 540 L202 540 C194 540 188 536 186 528Z';
   let tsh = '';
-  tsh += E(c, 206, 300, 30, 130, lit(crim, 0.55), 0.35, 14) + E(c, 290, 340, 18, 150, DEEP, 0.55, 12);
-  tsh += fold('M206 400 C204 430 204 456 206 482 M266 380 C270 420 272 450 270 482 M236 420 L236 482', 5, 0.4, 3);
-  tsh += Ln(c, 'M184 470 L184 186 M296 470 L296 186 M184 478 L296 478', gold, 6) + Ln(c, 'M182.6 470 L182.6 188 M182 476 L298 476', '#fff0b0', 1.4, 0.6);
-  tsh += Ln(c, 'M190 466 L190 192 M290 466 L290 192 M190 472 L290 472', dk(gold, 0.4), 1, 0.6, 0, ' stroke-dasharray="3 3"');
+  tsh += drape(c, [186, 180, 294, 540], crim, 12, { w: 7 });
+  tsh += E(c, 290, 360, 16, 170, DEEP, 0.55, 12);
+  tsh += Ln(c, 'M190 528 L190 186 M290 528 L290 186 M190 536 L290 536', gold, 6) + Ln(c, 'M188.6 528 L188.6 188 M188 534 L292 534', '#fff0b0', 1.4, 0.6);
   s += part(c, tab, flat(c, crim, [0, 0, 1, 0.7]), tsh);
-  s += G('translate(240 268) scale(1.15)', keepDevice(c));
+  s += G('translate(240 300) scale(1.3)', keepDevice(c));
+  // the robe's front edges, fur-faced, over the tabard
+  s += furMass('M182 178 C190 260 192 400 186 546 L170 548 C176 400 172 260 162 186Z', [160, 176, 194, 550], 23);
+  s += furMass('M298 178 C290 260 288 400 294 546 L310 548 C304 400 308 260 318 186Z', [286, 176, 320, 550], 24, dk(fur, 0.2));
   // belt with keys
-  s += part(c, 'M146 352 C190 362 290 362 334 352 L336 372 C290 382 190 382 144 372Z', cyl(c, '#3a2010', [0, 0, 1, 0.1]),
-    Ln(c, 'M148 357 C190 367 290 367 332 357', lit('#3a2010', 0.4), 1, 0.6));
-  s += part(c, 'M228 356 L252 356 L252 378 L228 378Z', 'none', '');
-  s += `<rect x="226" y="354" width="28" height="24" rx="3" fill="none" stroke="${gold}" stroke-width="4"/><rect x="226" y="354" width="28" height="24" rx="3" fill="none" stroke="#fff0b0" stroke-width="1" opacity="0.6"/>`;
-  s += Ln(c, 'M240 358 L240 374', '#b88a2a', 3);
-  s += G('translate(176 372)', keyRing(c));
+  s += part(c, 'M150 376 C190 386 290 386 330 376 L332 396 C290 406 190 406 148 396Z', cyl(c, '#3a2010', [0, 0, 1, 0.1]),
+    Ln(c, 'M152 381 C190 391 290 391 328 381', lit('#3a2010', 0.4), 1.4, 0.6));
+  s += `<rect x="226" y="378" width="28" height="24" rx="3" fill="none" stroke="${gold}" stroke-width="5"/>`;
+  s += Ln(c, 'M240 382 L240 398', '#b88a2a', 3);
+  s += G('translate(176 396) scale(1.3)', keyRing(c));
 
-  // collar
-  s += part(c, 'M204 158 C214 176 266 176 276 158 L282 168 C268 192 212 192 198 168Z', cyl(c, lit(blue, 0.1), [0, 0, 1, 0]));
+  // fur mantle over the shoulders
+  s += furMass('M150 186 C170 166 206 156 240 156 C274 156 310 166 330 186 C338 204 336 222 326 234 C300 222 272 216 240 216 C208 216 180 222 154 234 C144 222 142 204 150 186Z', [140, 152, 340, 238], 25);
+  // gold chain of office with a medallion
+  let chain = '';
+  for (let i = 0; i <= 16; i++) {
+    const t = i / 16;
+    const x = 176 + t * 128;
+    const y = 214 + Math.sin(t * Math.PI) * 50;
+    chain += E(c, x, y, 6, 4.4, ball(c, gold, 1.1), 1, 0, (t - 0.5) * 70);
+  }
+  chain += G('translate(240 278)', `<circle r="15" fill="${ball(c, gold, 1.2)}"/>` + `<circle r="9" fill="${R(c, [0.5, 0.5, 0.5, 0.35, 0.3], [[0, '#ff8a80'], [0.5, '#a81820'], [1, '#3a0408']])}"/>` + `<circle cx="-3" cy="-3" r="2.6" fill="#fff4e0"/>`);
+  s += chain;
 
   // head: bald crown, grey side hair, great beard
   const hx = 240;
@@ -936,7 +1053,7 @@ function steward(frame) {
     hs.push(S(c, `M${hx + sd * 30} 70 C${hx + sd * 46} 78 ${hx + sd * 50} 100 ${hx + sd * 46} 124 C${hx + sd * 42} 132 ${hx + sd * 36} 128 ${hx + sd * 34} 116Z`, sd < 0 ? '#d8d4d0' : '#9a96a0', 1, 0.6));
   }
   hs.push(G(`translate(${hx} ${hy})`, face(c, {
-    skin, iris: '#4a5a6c', brow: '#e6e2dc', browW: 2.2, jaw: 1, cheek: 1, expr: g ? 'smile' : 'neutral', age: 1, blush: 0.25, noseW: 1.15, noseCol: '#d89478', gaze: g ? 0 : 0, open: g ? 0.7 : 0.9,
+    skin, iris: '#4a5a6c', brow: '#e6e2dc', browW: 2.4, jaw: 0.96, cheek: 0.98, expr: g ? 'kind' : 'stern', browTilt: g ? 0 : -6, age: 1, blush: 0.32, noseW: 1.25, noseCol: '#d88a70', gaze: g ? 0.6 : -0.5, open: g ? 0.62 : 0.8, plane: 0.5,
   })));
   // bald crown sheen
   hs.push(E(c, hx - 12, 66, 12, 6, '#fff2e0', 0.55, 3));
@@ -959,9 +1076,10 @@ function steward(frame) {
 
   // arms
   const sleeve = (d, x, sgn) => part(c, d, cyl(c, blue, [0, 0, 1, 0.2]),
-    fold(`M${x - sgn * 10} 260 C${x} 268 ${x + sgn * 8} 276 ${x + sgn * 14} 280 M${x - sgn * 12} 300 C${x} 306 ${x + sgn * 8} 312 ${x + sgn * 14} 314`, 3.4, 0.45, 2) +
-    E(c, x - 10, 214, 12, 24, lit(blue, 0.6), sgn < 0 ? 0.45 : 0.15, 7) + E(c, x + 14, 280, 10, 60, DEEP, sgn > 0 ? 0.5 : 0.3, 7));
-  const cuff = (x, y, rot) => G(`translate(${x} ${y}) rotate(${rot})`, part(c, 'M-17 -7 L17 -7 L18 7 L-18 7Z', cyl(c, gold, [0, 0, 1, 0]), Ln(c, 'M-17 -3 L17 -3', '#fff0b0', 1, 0.6)));
+    drape(c, [x - 40, 180, x + 40, 400], blue, 30 + sgn, { w: 7, len: 40 }) +
+    fold(`M${x - sgn * 10} 260 C${x} 268 ${x + sgn * 8} 276 ${x + sgn * 14} 280 M${x - sgn * 12} 300 C${x} 306 ${x + sgn * 8} 312 ${x + sgn * 14} 314`, 5, 0.45, 3) +
+    E(c, x - 10, 214, 12, 24, lit(blue, 0.6), sgn < 0 ? 0.45 : 0.15, 7) + E(c, x + 14, 280, 10, 60, DEEP, sgn > 0 ? 0.55 : 0.3, 7));
+  const cuff = (x, y, rot) => G(`translate(${x} ${y}) rotate(${rot})`, furMass('M-24 -9 C-8 -13 8 -13 24 -9 L25 9 C8 13 -8 13 -25 9Z', [-26, -14, 26, 14], 40 + Math.round(x)));
   const book = (open) => {
     if (!open) {
       let b = '';
@@ -1048,8 +1166,10 @@ function pilgrim(frame) {
   s += part(c, `M${sx - 6} 640 L${sx - 5} 40 C${sx - 5} 32 ${sx + 5} 30 ${sx + 6} 38 L${sx + 6} 640Z`, cyl(c, wood, [0, 0, 1, 0]),
     Ln(c, `M${sx - 3} 600 L${sx - 2} 44`, lit(wood, 0.5), 1.6, 0.6, 0.8) + Ln(c, `M${sx - 5} 160 q4 4 9 0 M${sx - 5} 300 q4 5 9 0 M${sx - 5} 470 q4 4 9 0`, dk(wood, 0.6), 2.4, 0.8));
   s += E(c, sx, 160, 7.5, 5, ball(c, wood)) + E(c, sx, 470, 7.5, 5, ball(c, wood));
-  s += Ln(c, `M${sx} 58 C${sx + 14} 56 ${sx + 24} 60 ${sx + 26} 70`, '#5a5660', 3.4) + Ln(c, `M${sx} 57 C${sx + 14} 55 ${sx + 22} 58 ${sx + 25} 66`, '#b0b4c0', 1, 0.7);
-  s += G(`translate(${sx + 26} 72)`, lantern(c, true, 0.85));
+  // the lamp hangs from a crook bound to the staff, beside his face
+  s += Ln(c, `M${sx} 92 C${sx - 12} 84 ${sx - 26} 86 ${sx - 30} 98`, '#4a3a2a', 5) + Ln(c, `M${sx} 90 C${sx - 12} 82 ${sx - 24} 84 ${sx - 28} 94`, lit('#6e4422', 0.4), 1.6, 0.7);
+  s += Ln(c, `M${sx - 6} 86 l12 8 M${sx - 6} 94 l12 -6`, '#8a7048', 3);
+  s += G(`translate(${sx - 30} 100)`, lantern(c, true, 1.05));
 
   // boots
   for (const [x, i] of [[178, 0], [222, 1]]) {
@@ -1076,13 +1196,13 @@ function pilgrim(frame) {
   csh += hil('M126 300 C120 400 112 500 106 620 M156 330 C152 430 148 530 146 626', 6, 0.45, 4);
   csh += E(c, 130, 250, 26, 50, lit(cloak, 0.6), 0.35, 12);
   csh += Ln(c, 'M190 206 C182 330 176 500 172 626', lit(cloak, 0.5), 3, 0.7, 1);
-  s += part(c, cloakL, cyl(c, cloak, [0, 0, 1, 0.2]), csh);
+  s += part(c, cloakL, cyl(c, cloak, [0, 0, 1, 0.2]), drape(c, [90, 200, 200, 614], cloak, 51, { w: 8 }) + csh);
   let rsh = '';
   rsh += fold('M248 300 C252 400 256 500 258 626 M276 320 C282 420 288 520 292 626', 10, 0.55, 6);
   rsh += hil('M238 300 C242 400 244 500 246 626', 5, 0.3, 4);
   rsh += E(c, 290, 420, 20, 200, DEEP, 0.5, 14);
   rsh += Ln(c, 'M211 208 C219 330 224 500 229 626', dk(cloak, 0.6), 4, 0.6, 1);
-  s += part(c, cloakR, cyl(c, dk(cloak, 0.08), [0, 0, 1, 0.2]), rsh);
+  s += part(c, cloakR, cyl(c, dk(cloak, 0.08), [0, 0, 1, 0.2]), drape(c, [206, 200, 312, 614], dk(cloak, 0.08), 52, { w: 8 }) + rsh);
   s += Ln(c, hemL, dk(cloak, 0.5), 3, 0.7, 1) + Ln(c, 'M228 610 ' + hemR, dk(cloak, 0.6), 3, 0.7, 1);
 
   // shell badge
@@ -1108,7 +1228,7 @@ function pilgrim(frame) {
   const open = `M${cx} 80 C${cx + 24} 80 ${cx + 40} 98 ${cx + 42} 126 C${cx + 44} 158 ${cx + 34} 186 ${cx + 16} 202 C${cx + 8} 208 ${cx - 8} 208 ${cx - 16} 202 C${cx - 34} 186 ${cx - 44} 158 ${cx - 42} 126 C${cx - 40} 98 ${cx - 24} 80 ${cx} 80Z`;
   s += P(open, '#1a0f0c');
   const fs = [];
-  fs.push(G(`translate(${cx} 134) scale(0.96)`, face(c, { skin, iris: '#6a7a6a', brow: '#8a8480', browW: 1.4, expr: 'kind', age: 1, blush: 0.18, noseW: 1.1, shadow: 0.7 })));
+  fs.push(G(`translate(${cx} 134) scale(1.02)`, face(c, { skin, iris: '#5a6a58', brow: '#a8a29c', browW: 1.8, expr: 'kind', age: 1, blush: 0.22, noseW: 1.15, shadow: 0.3, plane: 0.0, gaze: 0.4 })));
   // grey beard
   const by = 134;
   const beard = `M${cx - 34} ${by + 6} C${cx - 36} ${by + 30} ${cx - 28} ${by + 58} ${cx - 12} ${by + 76} C${cx - 6} ${by + 82} ${cx + 6} ${by + 82} ${cx + 12} ${by + 76} C${cx + 28} ${by + 58} ${cx + 36} ${by + 30} ${cx + 34} ${by + 6} C${cx + 30} ${by + 22} ${cx + 22} ${by + 34} ${cx + 12} ${by + 38} C${cx + 6} ${by + 40} ${cx - 6} ${by + 40} ${cx - 12} ${by + 38} C${cx - 22} ${by + 34} ${cx - 30} ${by + 22} ${cx - 34} ${by + 6}Z`;
@@ -1116,19 +1236,21 @@ function pilgrim(frame) {
   fs.push(beardLocks(c, { cx, y0: by + 38, y1: by + 84, w: 30, n: 10, seed: 2, taper: 0.6, short: 0.25, drop: -44, cols: ['#dedad6', '#9a96a0', '#46424e'] }));
   fs.push(part(c, `M${cx} ${by + 25} C${cx - 8} ${by + 21} ${cx - 20} ${by + 22} ${cx - 26} ${by + 31} C${cx - 29} ${by + 38} ${cx - 28} ${by + 47} ${cx - 25} ${by + 54} C${cx - 22} ${by + 44} ${cx - 15} ${by + 35} ${cx - 6} ${by + 33} L${cx} ${by + 31} L${cx + 6} ${by + 33} C${cx + 15} ${by + 35} ${cx + 22} ${by + 44} ${cx + 25} ${by + 54} C${cx + 28} ${by + 47} ${cx + 29} ${by + 38} ${cx + 26} ${by + 31} C${cx + 20} ${by + 22} ${cx + 8} ${by + 21} ${cx} ${by + 25}Z`,
     L(c, [0, 0, 0.5, 1], [[0, '#e8e4e0'], [1, '#6a6670']]), Ln(c, `M${cx - 4} ${by + 27} C${cx - 12} ${by + 27} ${cx - 20} ${by + 32} ${cx - 23} ${by + 44} M${cx + 4} ${by + 27} C${cx + 12} ${by + 27} ${cx + 20} ${by + 32} ${cx + 23} ${by + 44}`, '#ffffff', 1, 0.5)));
-  s += `<g clip-path="${clipD(c, open)}">${fs.join('')}${E(c, cx, 100, 56, 38, '#120806', 0.68, 10)}${E(c, cx + 34, 150, 14, 70, '#120806', 0.6, 8)}${Ln(c, open, '#120806', 16, 0.65, 6)}</g>`;
+  s += `<g clip-path="${clipD(c, open)}">${fs.join('')}${E(c, cx - 10, 96, 56, 30, '#120806', 0.55, 10)}${E(c, cx - 36, 150, 14, 60, '#120806', 0.5, 8)}${Ln(c, open, '#120806', 14, 0.5, 6)}${E(c, cx + 40, 132, 40, 60, '#ffb24a', 0.42, 16)}${E(c, cx + 22, 128, 22, 30, '#ffd68a', 0.3, 10)}</g>`;
   s += `<circle cx="${cx - 15.6}" cy="132.4" r="1.3" fill="#fff6e0" opacity="0.9"/><circle cx="${cx + 12.6}" cy="132.4" r="1.1" fill="#fff6e0" opacity="0.75"/>`;
   s += Ln(c, `M${cx - 30} 86 C${cx - 42} 100 ${cx - 46} 124 ${cx - 46} 150`, lit(cloak, 0.6), 3, 0.6, 1.5);
 
   if (g) {
     // left arm comes out of the cloak and raises a hand in blessing
     s += part(c, 'M104 250 C96 270 98 296 112 306 C124 312 140 306 150 296 L146 250 C136 240 116 238 104 250Z', cyl(c, cloak, [0, 0, 1, 0.4]), fold('M110 268 C120 284 132 292 146 294', 5, 0.5, 3));
-    s += part(c, 'M104 288 C98 260 100 222 108 190 L140 192 C138 222 140 258 146 284Z', cyl(c, robe, [0, 0, 1, 0]),
+    s += part(c, 'M100 290 C92 260 94 222 102 182 L146 184 C142 222 144 258 150 286Z', cyl(c, robe, [0, 0, 1, 0]),
       fold('M112 230 C120 236 128 238 138 236 M110 260 C120 266 130 268 142 266', 3, 0.5, 2) + E(c, 140, 240, 6, 40, DEEP, 0.4, 4));
-    s += part(c, 'M104 196 C106 186 112 182 124 182 C134 182 142 186 144 196 L142 204 L106 204Z', cyl(c, dk(robe, 0.1), [0, 0, 1, 0]));
-    s += G('translate(124 154) scale(1.15)', blessHand(c, skin));
+    s += part(c, 'M98 190 C100 176 108 170 124 170 C138 170 148 176 150 190 L148 200 L100 200Z', cyl(c, dk(robe, 0.1), [0, 0, 1, 0]));
+    s += G('translate(124 128) scale(1.75)', blessHand(c, skin));
   }
-  return wrap(c, s);
+  const under = halo(c, sx - 30, 128, 110, '#ffb44a', 0.3);
+  const over = halo(c, sx - 30, 128, 44, '#ffe2a0', 0.4);
+  return wrap(c, s, { under, over });
 }
 
 
@@ -1216,7 +1338,7 @@ function peddler(frame) {
   }
   // coat
   const coat = 'M222 290 C200 292 184 310 180 336 C172 376 172 430 176 486 C178 510 182 526 190 536 L370 536 C378 526 382 510 384 486 C388 430 388 376 380 336 C376 310 360 292 338 290Z';
-  s += part(c, coat, cyl(c, teal, [0, 0.1, 1, 0.3]),
+  s += part(c, coat, cyl(c, teal, [0, 0.1, 1, 0.3]), drape(c, [176, 290, 386, 536], teal, 81, { w: 7 }) +
     fold('M212 470 C206 494 204 514 204 536 M346 470 C352 494 354 514 356 536 M280 480 L280 536', 5, 0.45, 3) +
     E(c, 360, 400, 20, 110, DEEP, 0.5, 12) + E(c, 214, 350, 26, 60, lit(teal, 0.5), 0.35, 12) +
     Ln(c, 'M280 300 L280 536', dk(teal, 0.6), 2.4, 0.7, 0.6) + E(c, 280, 292, 70, 16, DEEP, 0.5, 8));
@@ -1320,7 +1442,7 @@ function sellsword(frame) {
   const hair = '#2a1e18';
   const steelC = '#a8b0bc';
   const fold = (d, w = 4, op = 0.45, b = 3, col = DEEP) => Ln(c, d, col, w, op, b);
-  const mail = mailPattern(c);
+  const mail = mailPattern(c, 1.7);
   let s = '';
   const cx = 240;
 
@@ -1626,15 +1748,15 @@ function vael(frame) {
 
   // ---------------- surcoat
   const torso = 'M222 262 C200 266 186 278 182 296 C176 334 178 382 188 426 L356 426 C366 382 368 334 362 296 C358 278 344 266 322 262Z';
-  s += part(c, torso, L(c, [0, 0, 1, 0.3], [[0, lit(az, 0.15)], [0.22, lit(az, 0.3)], [0.5, az], [0.8, azD], [1, '#3a5a9a']]),
+  s += part(c, torso, L(c, [0, 0, 1, 0.3], [[0, lit(az, 0.15)], [0.22, lit(az, 0.3)], [0.5, az], [0.8, azD], [1, '#3a5a9a']]), drape(c, [180, 262, 366, 426], az, 91, { w: 7 }) +
     E(c, 210, 320, 30, 60, lit(az, 0.6), 0.35, 14) + E(c, 350, 360, 20, 80, DEEP, 0.5, 10) + fold('M300 300 C306 340 308 380 304 420', 6, 0.35, 5));
   s += G(`translate(${cx} 336)`, starDevice(c, 42));
   const skirtL = 'M188 424 L250 424 L246 612 C222 620 196 618 168 608Z';
   const skirtR = 'M296 424 L356 424 L378 608 C350 618 324 620 300 612Z';
   const skirtSh = (x0, x1, dir) => fold(`M${x0 + 18} 440 C${x0 + 14} 500 ${x0 + 8 * dir} 560 ${x0 + 4 * dir} 612 M${x1 - 18} 440 C${x1 - 16} 500 ${x1 - 14} 560 ${x1 - 12} 612`, 9, 0.45, 5) +
     Ln(c, `M${x0 + 8} 440 C${x0 + 4} 500 ${x0 - 2 * dir} 560 ${x0 - 6 * dir} 610`, lit(az, 0.6), 4, 0.35, 3);
-  s += part(c, skirtL, L(c, [0, 0, 1, 0], [[0, lit(az, 0.25)], [0.5, az], [1, azD]]), skirtSh(188, 250, 1) + Ln(c, 'M170 602 C196 612 222 614 246 606', '#e8b844', 5) + Ln(c, 'M170 597 C196 607 222 609 246 601', '#fff2b0', 1.2, 0.7));
-  s += part(c, skirtR, L(c, [0, 0, 1, 0], [[0, az], [0.5, azD], [1, '#122a5c']]), skirtSh(296, 356, -1) + Ln(c, 'M300 606 C324 614 350 612 376 602', '#c89a34', 5) + E(c, 360, 520, 20, 90, DEEP, 0.45, 10));
+  s += part(c, skirtL, L(c, [0, 0, 1, 0], [[0, lit(az, 0.25)], [0.5, az], [1, azD]]), drape(c, [168, 424, 250, 618], az, 92, { w: 7 }) + skirtSh(188, 250, 1) + Ln(c, 'M170 602 C196 612 222 614 246 606', '#e8b844', 5) + Ln(c, 'M170 597 C196 607 222 609 246 601', '#fff2b0', 1.2, 0.7));
+  s += part(c, skirtR, L(c, [0, 0, 1, 0], [[0, az], [0.5, azD], [1, '#122a5c']]), drape(c, [296, 424, 378, 618], azD, 93, { w: 7 }) + skirtSh(296, 356, -1) + Ln(c, 'M300 606 C324 614 350 612 376 602', '#c89a34', 5) + E(c, 360, 520, 20, 90, DEEP, 0.45, 10));
   s += ao('M250 426 L246 612 M296 426 L300 612', 4, 0.5, 2);
   // belt
   s += part(c, 'M184 416 C220 424 324 424 360 416 L362 438 C324 446 220 446 182 438Z', L(c, [0, 0, 0, 1], [[0, '#4a2a1a'], [1, '#1e120c']]));
@@ -1755,7 +1877,11 @@ function vael(frame) {
   }
   s += G(`translate(${hx} ${hy})`, helm);
 
-  return wrap(c, s, { fx: { kd: 1.24 } });
+  // the plume against the light: a soft, semi-transparent backlit glow
+  let under = '';
+  for (const [x, y, r, op] of [[cx + 40, 60, 70, 0.22], [cx + 110, 70, 80, 0.22], [cx + 165, 130, 60, 0.2]]) under += halo(c, x, y, r, '#dfe8ff', op);
+  under += halo(c, cx + 80, 40, 140, '#ffd9a0', 0.1);
+  return wrap(c, s, { under, fx: { kd: 1.4 } });
 }
 
 
@@ -1806,84 +1932,123 @@ function raven(frame) {
   // ---------------- the bird (scaled up around the perch)
   const ground = s;
   s = '';
-  if (!g) {
-    // tail
-    s += feather(c, 262, 214, 336, 304, 22, 6) + feather(c, 256, 220, 322, 318, 22, 4) + feather(c, 268, 210, 344, 288, 18, 8);
-    // legs and toes gripping the top
-    for (const [x, y] of [[204, 226], [232, 232]]) {
-      s += Ln(c, `M${x + 4} ${y - 22} L${x} ${y}`, '#1a1820', 6) + Ln(c, `M${x} ${y} l-14 6 M${x} ${y} l-4 10 M${x} ${y} l8 8 M${x} ${y} l14 2`, '#1a1820', 4);
-      s += Ln(c, `M${x} ${y} l-14 6 M${x} ${y} l14 2`, '#4a4a5a', 1, 0.6);
+  const R0 = rng(g ? 77 : 33);
+  const sheenL = '#6c68d4';
+  const sheenM = '#36326c';
+  // one painted feather: a dark tapered vane with a rounded tip, a glossy
+  // lit edge on the side toward the light and a darker shaft side
+  const pf = (x0, y0, x1, y1, w, lift = 1) => {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const l = Math.hypot(dx, dy) || 1;
+    const nx = -dy / l;
+    const ny = dx / l;
+    const pts = [[x0, y0], [x0 + dx * 0.5 + nx * w * 0.08, y0 + dy * 0.5 + ny * w * 0.08], [x1, y1]];
+    const d = ribbon(pts, (t) => w * (t < 0.82 ? 0.55 + 0.45 * Math.sin((t / 0.82) * Math.PI * 0.5) : Math.sqrt(Math.max(0, 1 - ((t - 0.82) / 0.18) ** 2))), 6);
+    const up = ny < 0 ? 1 : -1;
+    const edge = [[x0 + nx * w * 0.32 * up, y0 + ny * w * 0.32 * up], [x0 + dx * 0.55 + nx * w * 0.42 * up, y0 + dy * 0.55 + ny * w * 0.42 * up], [x1 - dx * 0.06 + nx * w * 0.2 * up, y1 - dy * 0.06 + ny * w * 0.2 * up]];
+    return part(c, d, L(c, [0, 0, 1, 1], [[0, '#1c1a2c'], [0.5, '#121018'], [1, '#08070c']]),
+      brush(c, edge, w * 0.36, lift > 0.6 ? sheenL : sheenM, 0.7 * lift, 0.9) +
+      brush(c, edge.map(([x, y]) => [x - nx * w * 0.5 * up, y - ny * w * 0.5 * up]), w * 0.3, '#05040a', 0.5, 1));
+  };
+  // rows of overlapping rounded feather tips over a mass (scallops)
+  const scallops = (cx, cy, rx, ry, rows, per, dir, sz, lift) => {
+    let t = '';
+    for (let rI = rows - 1; rI >= 0; rI--) {
+      for (let k = 0; k < per; k++) {
+        const u = (k + 0.5 + (rI % 2) * 0.5) / per - 0.5;
+        const v = rI / Math.max(1, rows - 1) - 0.5;
+        const x = cx + u * rx * 2 + (R0() - 0.5) * 4;
+        const y = cy + v * ry * 2 + (R0() - 0.5) * 4;
+        const lightness = Math.max(0.15, Math.min(1, lift * (0.9 - u * 0.9 - v * 0.6)));
+        t += pf(x - dir * sz * 0.3, y - sz * 0.5, x + dir * sz * 0.35, y + sz * 0.55, sz * 0.95, lightness);
+      }
     }
-    // body
-    const body = 'M132 132 C150 112 196 112 236 128 C270 142 290 176 284 204 C278 228 252 236 222 230 C190 224 162 206 146 184 C134 168 126 150 132 132Z';
-    s += part(c, body, glossy(), E(c, 190, 140, 40, 16, '#4a4aa0', 0.3, 8) + E(c, 250, 210, 30, 20, DEEP, 0.5, 8) +
-      Ln(c, 'M150 180 C170 200 196 214 224 220', '#3a3a6a', 2, 0.5, 1));
-    // folded wing over the body
-    const wing = 'M168 130 C200 118 244 126 270 150 C292 170 304 200 314 236 C290 230 256 222 228 210 C200 196 178 176 168 158Z';
-    s += part(c, wing, glossy([0, 0, 1, 0.6]),
-      Ln(c, 'M186 140 C214 136 240 146 258 166 M196 156 C222 158 248 172 268 196 M210 176 C236 184 262 204 292 226', '#5a5ab8', 1.4, 0.5) +
-      Ln(c, 'M186 144 C214 140 240 150 258 170 M196 160 C222 162 248 176 268 200', '#06050a', 2, 0.5, 0.8) + E(c, 214, 150, 30, 12, '#6a62c8', 0.25, 6));
-    for (let i = 0; i < 5; i++) s += feather(c, 236 + i * 6, 190 + i * 4, 312 + i * 4, 236 + i * 6, 14, -3);
-    // head and throat hackles
-    const head = 'M104 108 C104 84 124 68 148 68 C170 68 186 82 188 104 C190 122 180 136 164 140 C146 144 124 142 112 132 C106 126 104 118 104 108Z';
-    s += part(c, head, glossy([0, 0, 1, 0.8]), E(c, 136, 82, 22, 9, '#5a5ab8', 0.4, 5) + E(c, 176, 120, 14, 20, DEEP, 0.5, 5));
-    s += part(c, 'M112 128 C118 146 130 158 148 164 L156 150 L150 140 C136 142 122 138 112 128Z', glossy(),
-      Ln(c, 'M118 136 l6 14 M126 140 l4 16 M136 142 l2 16 M146 144 l0 12', '#4a4a80', 1.2, 0.6));
-    // beak, heavy and hooked
-    s += part(c, 'M114 90 C96 84 74 86 56 96 C48 100 44 106 46 112 C48 116 52 114 54 111 C70 112 92 116 114 126Z', L(c, [0, 0, 0, 1], [[0, '#55536a'], [0.35, '#24222e'], [1, '#08070c']]),
-      Ln(c, 'M112 112 C92 109 72 110 54 111', '#06050a', 1.6, 0.9) + spec(c, 'M108 90 C92 87 74 90 60 98', 2, 0.6) + Ln(c, 'M114 92 C120 96 122 104 118 110', '#2a2840', 6, 0.8, 1));
-    s += Ln(c, 'M112 98 C120 94 128 94 134 98', '#2a2840', 4, 0.8);
-    // the eye
-    s += E(c, 142, 94, 7.4, 7, '#0a0810') + E(c, 142, 94, 5.4, 5.2, R(c, [0.5, 0.5, 0.5, 0.4, 0.35], [[0, '#fff2b0'], [0.4, '#f0b030'], [1, '#8a4a08']])) +
-      E(c, 142.4, 94.4, 2.4, 2.6, '#0a0608') + E(c, 140, 92, 1.4, 1.2, '#ffffff');
+    return t;
+  };
+  const bodyFill = (v = [0, 0, 1, 1]) => L(c, v, [[0, '#2a2844'], [0.3, '#14121e'], [0.7, '#0c0a12'], [1, '#07060b']]);
+  const beak = (open) => {
+    let t = '';
+    const upper = open
+      ? 'M128 76 C110 62 86 58 64 62 C56 64 52 70 54 76 C56 80 60 78 62 76 C84 78 106 84 126 96Z'
+      : 'M114 90 C96 82 74 84 56 94 C48 98 44 104 46 110 C48 114 52 112 54 109 C70 110 92 114 114 124Z';
+    t += part(c, upper, L(c, [0, 0, 0, 1], [[0, '#5e5c70'], [0.3, '#2a2834'], [1, '#08070c']]),
+      brush(c, open ? [[122, 76], [100, 68], [72, 66]] : [[108, 90], [88, 88], [62, 96]], 5, '#a8a6bc', 0.5, 0.8));
+    if (open) {
+      t += S(c, 'M126 96 C106 88 86 86 66 84 C86 94 106 102 126 106Z', '#6a1a2a') + E(c, 102, 94, 12, 4, '#c04a5e', 0.8, 1, 8);
+      t += part(c, 'M126 102 C108 104 90 110 72 120 C68 123 69 126 73 125 C92 120 110 116 126 114Z', L(c, [0, 0, 0, 1], [[0, '#3a3848'], [1, '#08070c']]));
+    }
+    return t;
+  };
+  if (!g) {
+    // tail, long and wedge-shaped
+    for (const [x1, y1, w] of [[344, 300, 22], [332, 318, 22], [322, 330, 20], [350, 284, 18]]) s += pf(262, 214, x1, y1, w, 0.5);
+    // feet gripping the stump
+    for (const [x, y] of [[204, 226], [232, 232]]) {
+      s += Ln(c, `M${x + 4} ${y - 22} L${x} ${y}`, '#1a1820', 7) + Ln(c, `M${x} ${y} l-15 6 M${x} ${y} l-4 11 M${x} ${y} l9 8 M${x} ${y} l15 2`, '#1a1820', 5);
+    }
+    // body mass, then feathered planes over it
+    const body = 'M128 132 C146 108 196 108 238 124 C274 140 294 176 286 206 C278 232 250 240 220 234 C186 228 158 210 142 186 C130 168 122 150 128 132Z';
+    s += part(c, body, bodyFill(),
+      scallops(196, 190, 60, 26, 3, 6, 1, 22, 0.7) + E(c, 182, 132, 46, 16, sheenL, 0.3, 8) + E(c, 254, 214, 34, 24, DEEP, 0.6, 8));
+    // folded wing: coverts as scallops, then long primaries over the tail
+    const wing = 'M164 130 C200 114 246 122 272 148 C294 170 306 200 316 238 C290 232 256 222 228 210 C198 196 174 176 164 156Z';
+    s += part(c, wing, bodyFill([0, 0, 1, 0.6]), scallops(222, 160, 44, 24, 3, 5, 1, 24, 1) + E(c, 206, 140, 34, 12, sheenL, 0.35, 6));
+    for (let i = 0; i < 5; i++) s += pf(232 + i * 7, 186 + i * 5, 318 + i * 5, 240 + i * 6, 16, 0.85 - i * 0.12);
+    // head and the shaggy throat hackles
+    s += part(c, 'M112 128 C116 148 130 162 150 168 L160 150 L152 138 C136 140 122 136 112 128Z', bodyFill());
+    for (let i = 0; i < 6; i++) s += pf(118 + i * 6, 128 + i * 3, 116 + i * 7, 156 + i * 4, 11, 0.5);
+    const head = 'M102 108 C102 82 122 66 148 66 C172 66 188 82 190 104 C192 124 180 138 164 142 C144 146 120 142 110 132 C104 124 102 116 102 108Z';
+    s += part(c, head, bodyFill([0, 0, 1, 0.8]),
+      brush(c, [[112, 92], [134, 72], [162, 70]], 12, sheenL, 0.5, 2) + brush(c, [[116, 112], [140, 100], [170, 98]], 9, sheenM, 0.4, 2) + E(c, 178, 122, 14, 20, DEEP, 0.6, 5));
+    s += beak(false);
+    s += brush(c, [[112, 96], [122, 90], [134, 92]], 7, '#2a2840', 0.9, 0.6);
+    // the single bright eye
+    s += E(c, 142, 94, 8, 7.6, '#0a0810') + E(c, 142, 94, 5.8, 5.6, R(c, [0.5, 0.5, 0.5, 0.4, 0.35], [[0, '#fff2b0'], [0.4, '#f0b030'], [1, '#8a4a08']])) +
+      E(c, 142.4, 94.4, 2.6, 2.8, '#0a0608') + E(c, 140, 91.6, 1.8, 1.6, '#ffffff');
   } else {
     // wings spread wide, beak open
-    const wingFan = (sx, sy, dir, far) => {
+    const wingMass = (sx, sy, dir, far) => {
       let t = '';
-      const tone = far ? 0.75 : 1;
+      const tone = far ? 0.55 : 1;
       // primaries, fingered, fanning up and out
       for (let i = 0; i < 7; i++) {
         const a = (dir < 0 ? -92 - i * 9.5 : -100 + (8 + i * 11)) * (Math.PI / 180);
-        const len = 150 - i * 6 - (far ? 14 : 0);
+        const len = 146 - i * 6 - (far ? 14 : 0);
         const bx = sx + dir * (40 + i * 6);
         const by = sy - 30 + i * 6;
-        t += feather(c, bx, by, bx + Math.cos(a) * len * 0.2 + dir * len * 0.72, by + Math.sin(a) * len * 0.9, 18 - i * 0.6, dir * 8, tone);
+        t += pf(bx, by, bx + Math.cos(a) * len * 0.2 + dir * len * 0.72, by + Math.sin(a) * len * 0.9, 20 - i * 0.6, tone * (1 - i * 0.06));
       }
       // secondaries along the trailing edge
       for (let i = 0; i < 6; i++) {
         const bx = sx + dir * (12 + i * 9);
         const by = sy + 4 + i * 2;
-        t += feather(c, bx, by - 10, bx + dir * (18 + i * 4), by + 56 - i * 4, 17, dir * -4, tone);
+        t += pf(bx, by - 10, bx + dir * (18 + i * 4), by + 56 - i * 4, 19, tone * 0.7);
       }
-      // coverts, the inner arm of the wing
+      // coverts: the inner arm of the wing as rows of scallops
       const cov = dir < 0
         ? `M${sx} ${sy} C${sx - 30} ${sy - 50} ${sx - 80} ${sy - 76} ${sx - 120} ${sy - 80} C${sx - 110} ${sy - 50} ${sx - 70} ${sy - 10} ${sx - 20} ${sy + 20}Z`
         : `M${sx} ${sy} C${sx + 30} ${sy - 50} ${sx + 80} ${sy - 76} ${sx + 120} ${sy - 80} C${sx + 110} ${sy - 50} ${sx + 70} ${sy - 10} ${sx + 20} ${sy + 20}Z`;
-      t += part(c, cov, glossy([dir < 0 ? 1 : 0, 0, dir < 0 ? 0 : 1, 1]),
-        Ln(c, `M${sx + dir * 16} ${sy - 12} C${sx + dir * 50} ${sy - 40} ${sx + dir * 84} ${sy - 56} ${sx + dir * 112} ${sy - 70} M${sx + dir * 20} ${sy + 4} C${sx + dir * 54} ${sy - 20} ${sx + dir * 84} ${sy - 36} ${sx + dir * 106} ${sy - 50}`, '#5a5ab8', 1.4, 0.45) +
-        E(c, sx + dir * 60, sy - 50, 30, 10, '#6a62c8', 0.25, 6, dir * -30));
+      t += part(c, cov, bodyFill([dir < 0 ? 1 : 0, 0, dir < 0 ? 0 : 1, 1]),
+        scallops(sx + dir * 58, sy - 34, 52, 26, 3, 6, dir, 22, tone) + E(c, sx + dir * 60, sy - 56, 34, 10, sheenL, 0.3 * tone, 6, dir * -30));
       return t;
     };
-    s += wingFan(196, 158, -1, true);
-    // tail
-    s += feather(c, 236, 218, 296, 316, 22, 6) + feather(c, 230, 222, 276, 330, 22, 4) + feather(c, 242, 214, 312, 300, 18, 8);
+    s += wingMass(196, 158, -1, true);
+    for (const [x1, y1, w] of [[296, 316, 22], [276, 330, 22], [312, 300, 18]]) s += pf(236, 218, x1, y1, w, 0.5);
     for (const [x, y] of [[198, 228], [228, 232]]) {
-      s += Ln(c, `M${x + 3} ${y - 22} L${x} ${y}`, '#1a1820', 6) + Ln(c, `M${x} ${y} l-14 6 M${x} ${y} l-4 10 M${x} ${y} l8 8 M${x} ${y} l14 2`, '#1a1820', 4);
+      s += Ln(c, `M${x + 3} ${y - 22} L${x} ${y}`, '#1a1820', 7) + Ln(c, `M${x} ${y} l-15 6 M${x} ${y} l-4 11 M${x} ${y} l9 8 M${x} ${y} l15 2`, '#1a1820', 5);
     }
     const body = 'M150 118 C170 98 214 104 240 126 C266 148 270 184 258 206 C246 228 220 234 196 226 C170 216 154 192 148 164 C144 146 142 130 150 118Z';
-    s += part(c, body, glossy(), E(c, 190, 140, 30, 20, '#4a4aa0', 0.3, 8) + E(c, 240, 200, 26, 20, DEEP, 0.5, 8));
-    s += wingFan(222, 160, 1, false);
-    // head raised, beak open
+    s += part(c, body, bodyFill(), scallops(206, 176, 44, 34, 4, 5, 1, 22, 0.8) + E(c, 240, 200, 26, 20, DEEP, 0.55, 8));
+    s += wingMass(222, 160, 1, false);
+    s += part(c, 'M126 112 C132 132 146 146 166 152 L176 136 L168 124 C152 126 136 122 126 112Z', bodyFill());
+    for (let i = 0; i < 6; i++) s += pf(130 + i * 7, 114 + i * 3, 128 + i * 8, 144 + i * 4, 11, 0.5);
     const head = 'M118 92 C116 68 134 50 158 50 C180 50 196 64 198 86 C200 104 190 118 174 122 C156 126 134 124 124 114 C120 108 118 100 118 92Z';
-    s += part(c, head, glossy([0, 0, 1, 0.8]), E(c, 148, 64, 22, 9, '#5a5ab8', 0.4, 5) + E(c, 186, 104, 14, 20, DEEP, 0.5, 5));
-    s += part(c, 'M126 112 C132 132 146 146 166 152 L176 136 L168 124 C152 126 136 122 126 112Z', glossy(),
-      Ln(c, 'M132 120 l6 14 M142 124 l4 16 M152 126 l2 16 M162 128 l0 12', '#4a4a80', 1.2, 0.6));
-    s += part(c, 'M128 76 C110 64 88 60 66 64 C58 66 54 72 56 78 C58 82 62 80 64 78 C84 80 106 86 126 96Z', L(c, [0, 0, 0, 1], [[0, '#55536a'], [0.45, '#24222e'], [1, '#08070c']]), spec(c, 'M122 74 C106 66 88 64 70 68', 2, 0.6));
-    s += P('M122 92 C104 86 86 84 66 82 C86 90 104 98 122 100Z', '#5a1a2a') + E(c, 104, 92, 10, 3, '#a8445a', 0.8, 0, 8);
-    s += part(c, 'M126 98 C108 100 90 106 72 116 C68 119 69 122 73 121 C92 116 110 112 126 110Z', L(c, [0, 0, 0, 1], [[0, '#3a3848'], [1, '#08070c']]));
-    s += Ln(c, 'M126 82 C134 78 142 78 148 82', '#2a2840', 4, 0.8);
-    s += E(c, 158, 78, 7.6, 7.2, '#0a0810') + E(c, 158, 78, 5.6, 5.4, R(c, [0.5, 0.5, 0.5, 0.4, 0.35], [[0, '#fff6c0'], [0.4, '#ffbe3a'], [1, '#9a5008']])) +
-      E(c, 158.4, 78.4, 2.2, 2.6, '#0a0608') + E(c, 156, 76, 1.4, 1.2, '#ffffff');
+    s += part(c, head, bodyFill([0, 0, 1, 0.8]), brush(c, [[126, 76], [148, 56], [176, 54]], 12, sheenL, 0.5, 2) + E(c, 186, 104, 14, 20, DEEP, 0.55, 5));
+    s += beak(true);
+    s += brush(c, [[126, 80], [136, 74], [148, 76]], 7, '#2a2840', 0.9, 0.6);
+    s += E(c, 158, 78, 8, 7.6, '#0a0810') + E(c, 158, 78, 5.8, 5.6, R(c, [0.5, 0.5, 0.5, 0.4, 0.35], [[0, '#fff6c0'], [0.4, '#ffbe3a'], [1, '#9a5008']])) +
+      E(c, 158.4, 78.4, 2.4, 2.8, '#0a0608') + E(c, 156, 75.6, 1.8, 1.6, '#ffffff');
   }
   s = ground + G(g ? 'translate(204 240) scale(0.95) translate(-216 -238)' : 'translate(216 238) scale(1.18) translate(-216 -238)', s);
   return wrap(c, s, { fx: { ow: 2.2, rim: 0.9 } });
@@ -1906,20 +2071,25 @@ function hand(frame) {
   const g = frame === 'attack';
   const crim = '#9a1420';
   const fold = (d, w = 6, op = 0.5, b = 4, col = DEEP) => Ln(c, d, col, w, op, b);
-  const steelV = (v = [0, 0, 0, 1]) => L(c, v, [[0, '#f6f8fc'], [0.18, '#c4ccd8'], [0.42, '#6e7686'], [0.6, '#323744'], [0.8, '#7e8494'], [0.93, '#c8b8a6'], [1, '#9db4d8']]);
+  const steelV = (v = [0, 0, 0, 1]) => L(c, v, [[0, '#eef2f8'], [0.16, '#aab2c0'], [0.36, '#5a6272'], [0.56, '#262a36'], [0.8, '#4e5464'], [0.93, '#9a8a7c'], [1, '#8aa2c8']]);
   const steelH = (v = [0, 0, 1, 0]) => plate(c, v);
   const sp = (d, w = 3, op = 0.85, b = 1.2) => Ln(c, d, '#ffffff', w, op, b);
 
   // ---------------- blade, guard, grip (local frame)
   let blade = '';
   const bl = 'M-34 -112 L-31 -500 C-27 -548 -14 -592 0 -628 C14 -592 27 -548 31 -500 L34 -112Z';
-  const swordBlade = part(c, bl, L(c, [0, 0, 1, 0], [[0, '#3c4250'], [0.06, '#f8fbff'], [0.16, '#cfd8e6'], [0.32, '#8e98aa'], [0.45, '#4a5262'], [0.55, '#e6ecf4'], [0.7, '#7a8292'], [0.86, '#2e323e'], [0.94, '#b8aa9c'], [1, '#9fbbe6']]),
-    Ln(c, 'M-28 -112 L-26 -500 C-22 -546 -10 -588 0 -622', '#ffffff', 5, 0.6, 1.5) + Ln(c, 'M28 -112 L26 -500 C22 -546 10 -588 0 -622', '#1e222c', 5, 0.45, 1.5) +
-    S(c, 'M-8 -128 L-6 -470 L0 -496 L6 -470 L8 -128Z', L(c, [0, 0, 1, 0], [[0, '#22262f'], [0.45, '#5a6272'], [1, '#e8eef6']]), 0.92, 0.8) +
-    Ln(c, 'M-8 -128 L-6 -470 L0 -496', '#ffffff', 1.2, 0.5) +
-    S(c, 'M-30 -260 L-28 -390 L30 -350 L30 -230Z', '#dbe6f8', 0.28, 10) + E(c, 10, -560, 14, 50, '#ffffff', 0.25, 8) +
-    sp('M-18 -150 L-17 -470', 3.4, 0.7, 2) + sp('M-14 -190 L-13 -300', 2, 0.95, 0.6) +
-    G('translate(0 -170)', Ln(c, 'M0 -14 L0 14 M-10 0 L10 0 M-7 -7 L7 7 M7 -7 L-7 7', '#e8b844', 1.6, 0.85)));
+  // painted as two bold bevel planes either side of the ridge: the lit
+  // plane takes the sky, the far plane falls into shadow
+  const bevL = 'M-34 -112 L-31 -500 C-27 -548 -14 -592 0 -628 L0 -112Z';
+  const bevR = 'M34 -112 L31 -500 C27 -548 14 -592 0 -628 L0 -112Z';
+  const swordBlade = part(c, bl, '#5a6070',
+    P(bevL, L(c, [0, 1, 0, 0], [[0, '#b8c2d0'], [0.45, '#eef3fa'], [0.7, '#c8d2e0'], [1, '#f6f9fd']])) +
+    P(bevR, L(c, [0, 1, 0, 0], [[0, '#3a3e4a'], [0.5, '#5c6476'], [0.8, '#40465a'], [1, '#7a8498']])) +
+    brush(c, [[-20, -140], [-18, -360], [-12, -560]], 9, '#ffffff', 0.55, 2) +
+    brush(c, [[16, -150], [15, -380], [8, -560]], 8, '#20242e', 0.45, 2) +
+    Ln(c, 'M0 -116 L0 -626', '#ffffff', 2.4, 0.7, 0.6) + Ln(c, 'M30 -112 L28 -500', RIM, 3, 0.6, 1) +
+    E(c, -14, -250, 12, 60, '#ffd9a0', 0.25, 8) +
+    G('translate(0 -170)', Ln(c, 'M0 -14 L0 14 M-10 0 L10 0 M-7 -7 L7 7 M7 -7 L-7 7', '#e8b844', 2.4, 0.9)));
   blade += swordBlade;
   const bladeOnly = () => blade;
   // grip: leather with gold wire
@@ -1955,7 +2125,7 @@ function hand(frame) {
     return part(c, d, steelV(),
       sp(`M${x0 + rl} ${y0 + h * 0.2} L${x1 - rr} ${y0 + h * 0.2}`, 2, 0.85, 0.7) +
       Ln(c, `M${x0 + rl} ${y0 + h * 0.48} L${x1 - rr} ${y0 + h * 0.48}`, '#ffffff', 1, 0.3, 0.4) +
-      E(c, (x0 + x1) / 2, y1 - 2, (x1 - x0) * 0.55, 4, DEEP, 0.55, 2.4) + E(c, x1 - 3, y0 + h * 0.5, 4, h * 0.45, DEEP, 0.35, 2));
+      E(c, (x0 + x1) / 2, y1 - 3, (x1 - x0) * 0.6, 6, DEEP, 0.7, 2.4) + E(c, x1 - 3, y0 + h * 0.5, 5, h * 0.5, DEEP, 0.45, 2));
   };
   const rows = [[-76, -42, -60], [-40, -6, -64], [-4, 30, -62], [32, 62, -52]];
   rows.forEach(([y0, y1, xl], i) => {
@@ -2004,7 +2174,7 @@ function hand(frame) {
     // flared steel cuff
     const cf = 'M-84 0 C-96 70 -120 160 -150 240 L150 240 C120 160 96 70 84 0Z';
     t += part(c, cf, steelH(),
-      sp('M-60 10 C-70 80 -88 160 -110 230', 4, 0.8, 1.8) + E(c, 0, 4, 90, 12, '#0e0c14', 0.55, 6) + E(c, 110, 160, 30, 90, DEEP, 0.45, 12));
+      sp('M-60 10 C-70 80 -88 160 -110 230', 6, 0.8, 2.4) + E(c, 0, 4, 90, 14, '#0e0c14', 0.6, 6) + E(c, 80, 150, 70, 110, DEEP, 0.6, 22) + E(c, 20, 60, 50, 50, DEEP, 0.35, 18) + E(c, -60, 100, 24, 90, '#ffffff', 0.22, 12));
     // crimson-and-gold band across the cuff
     const band = 'M-110 128 C-40 140 40 140 110 128 L124 184 C40 198 -40 198 -124 184Z';
     t += part(c, band, L(c, [0, 0, 1, 0], [[0, '#6a0a14'], [0.2, '#d8404c'], [0.45, crim], [0.8, '#4a0610'], [1, '#8a3a5a']]),
@@ -2050,7 +2220,7 @@ function hand(frame) {
     under = trail;
     s += G(tf, parts('translate(62 86) rotate(-40)'));
   }
-  return wrap(c, s, { under, over, fx: { ow: 2.8, lx: 300, ly: -200, lz: 900, kd: 1.22 } });
+  return wrap(c, s, { under, over, fx: { lx: 160, ly: -260, lz: 760, kd: 1.34, bounce: 0.18, formBlur: 14, formScale: 9, lost: 2.2 } });
 }
 
 export const ART_PEOPLE = {

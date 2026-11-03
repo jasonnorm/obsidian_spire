@@ -91,14 +91,22 @@ function rasterise(svg, w, h) {
 }
 
 // The parts of a painting that should give off light: bright, saturated
-// colour such as fire, eye-lights and lantern glow. Returns null when a
-// painting has none.
+// colour such as fire, eye-lights and lantern glow. Everything else gets a
+// faint share of its own colour too, so a figure standing past the torchlight
+// still shows the painting's lights and darks instead of going to black.
+const FILL = 0.1;
+// Built at half size: every frame carries one, and bloom softens it anyway.
 function glowMask(cv) {
-  const { width: w, height: h } = cv;
-  const src = cv.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  const w = Math.max(1, Math.round(cv.width / 2));
+  const h = Math.max(1, Math.round(cv.height / 2));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(cv, 0, 0, w, h);
+  const src = ctx.getImageData(0, 0, w, h).data;
   const out = new ImageData(w, h);
   const d = out.data;
-  let any = 0;
   for (let i = 0; i < src.length; i += 4) {
     const a = src[i + 3];
     if (a < 8) continue;
@@ -106,18 +114,13 @@ function glowMask(cv) {
     const mx = Math.max(r, g, b);
     const mn = Math.min(r, g, b);
     const sat = mx > 0 ? (mx - mn) / mx : 0;
-    // Only near-white-hot, strongly coloured paint glows: fire, eye-lights,
-    // lanterns. Cloth and armour colours stay lit by the scene.
-    const k = Math.min(1, Math.max(0, (mx - 0.88) / 0.1)) * Math.min(1, Math.max(0, (sat - 0.45) / 0.3));
-    if (k <= 0) continue;
-    any++;
+    // Only near-white-hot, strongly coloured paint glows in full: fire,
+    // eye-lights, lanterns. Cloth and armour get the faint fill.
+    const hot = Math.min(1, Math.max(0, (mx - 0.88) / 0.1)) * Math.min(1, Math.max(0, (sat - 0.45) / 0.3));
+    const k = Math.max(hot, FILL * (a / 255));
     d[i] = src[i] * k; d[i + 1] = src[i + 1] * k; d[i + 2] = src[i + 2] * k; d[i + 3] = 255;
   }
-  if (any < 40) return null;
-  const c = document.createElement('canvas');
-  c.width = w;
-  c.height = h;
-  c.getContext('2d', { willReadFrequently: true }).putImageData(out, 0, 0);
+  ctx.putImageData(out, 0, 0);
   return c;
 }
 
