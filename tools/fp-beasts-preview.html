@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spire Beast Sprites</title>
+<style>
+  :root {
+    --page: #0d0a08;
+    --label: #c9a77a;
+    --muted: #7d6a55;
+    --rule: #2b221b;
+    --black: #000000;
+    --grey: #808080;
+    --dungeon: #07060a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px 48px;
+    background: var(--page);
+    color: var(--label);
+    font: 13px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: .12em; text-transform: uppercase; color: #ffb347; }
+  h2 { margin: 0 0 10px; font-size: 14px; letter-spacing: .1em; text-transform: uppercase; color: #ffb347; }
+  h2 small { color: var(--muted); font-weight: normal; letter-spacing: .04em; text-transform: none; }
+  h3 { margin: 14px 0 6px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  p.note { margin: 0 0 20px; color: var(--muted); max-width: 80ch; }
+  #error { color: #ff5555; white-space: pre-wrap; }
+
+  .palette { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 24px; }
+  .swatch { width: 54px; font-size: 10px; color: var(--muted); text-align: center; }
+  .swatch i { display: block; height: 22px; border: 1px solid var(--rule); margin-bottom: 2px; }
+
+  section.sprite { border-top: 1px solid var(--rule); padding: 18px 0 22px; }
+  .frames { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+  .frame { display: flex; flex-direction: column; gap: 6px; max-width: 100%; }
+  .frame > b { font-weight: 600; letter-spacing: .08em; color: var(--label); }
+  .bgs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .bg { display: flex; align-items: flex-end; gap: 12px; padding: 10px; border: 1px solid var(--rule); max-width: 100%; overflow-x: auto; }
+  .bg.black { background: var(--black); }
+  .bg.grey { background: var(--grey); }
+  .bg.dungeon { background: var(--dungeon); }
+  figure { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  figcaption { font-size: 10px; color: var(--muted); white-space: nowrap; }
+  .bg.grey figcaption { color: #1a1a1a; }
+  canvas { display: block; image-rendering: pixelated; }
+
+  .lineup { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; padding: 12px; background: var(--grey); border: 1px solid var(--rule); margin-bottom: 24px; }
+  .lineup figure figcaption { color: #1a1a1a; }
+  .lineup.black { background: var(--black); }
+  .lineup.black figure figcaption { color: var(--muted); }
+  .lineup.dungeon { background: var(--dungeon); }
+  .lineup.dungeon figure figcaption { color: var(--muted); }
+</style>
+</head>
+<body>
+  <h1>Obsidian Spire &middot; first-person beasts</h1>
+  <p class="note" id="count">Loading&hellip;</p>
+  <p id="error"></p>
+  <div class="palette" id="palette"></div>
+  <div id="lineups"></div>
+  <div id="sheet"></div>
+
+<script type="module">
+  const errBox = document.getElementById('error');
+  const fail = (e) => { errBox.textContent = String((e && e.stack) || e); window.__beastsError = String((e && e.message) || e); };
+  window.addEventListener('error', (e) => fail(e.error || e.message));
+
+  try {
+    const { PALETTE, PAL_RGB, BAYER4, nearestIndex, rowsToCanvas } = await import('../js/fp/palette.js');
+    const { BEASTS_ART } = await import('../js/fp/sprites-beasts.js');
+
+    document.getElementById('palette').innerHTML = PALETTE.map((c, i) =>
+      `<div class="swatch"><i style="background:${c}"></i>${i.toString(16)} ${c}</div>`).join('');
+
+    const keys = Object.keys(BEASTS_ART);
+    let frameCount = 0;
+
+    // A dimmed copy of a frame: every pixel multiplied by `tint` (r,g,b factors).
+    // With `requant`, the result is snapped back onto the 16-colour palette
+    // through the 4x4 Bayer matrix, as the dithered first-person renderer would.
+    const tinted = (rows, scale, tint, requant) => {
+      const h = rows.length;
+      const w = rows[0].length;
+      const small = document.createElement('canvas');
+      small.width = w; small.height = h;
+      const g = small.getContext('2d');
+      const img = g.createImageData(w, h);
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const ch = rows[y][x];
+          if (ch === '.') continue;
+          let [r, gg, b] = PAL_RGB[parseInt(ch, 16)].map((v, k) => v * tint[k]);
+          if (requant) {
+            const t = ((BAYER4[(y % 4) * 4 + (x % 4)] + 0.5) / 16 - 0.5) * 85;
+            [r, gg, b] = PAL_RGB[nearestIndex(r + t, gg + t, b + t)];
+          }
+          const o = (y * w + x) * 4;
+          img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = b; img.data[o + 3] = 255;
+        }
+      }
+      g.putImageData(img, 0, 0);
+      const big = document.createElement('canvas');
+      big.width = w * scale; big.height = h * scale;
+      const bg = big.getContext('2d');
+      bg.imageSmoothingEnabled = false;
+      bg.drawImage(small, 0, 0, w * scale, h * scale);
+      return big;
+    };
+
+    const figure = (canvas, caption, data = {}) => {
+      const fig = document.createElement('figure');
+      Object.assign(fig.dataset, data);
+      fig.append(canvas);
+      const cap = document.createElement('figcaption');
+      cap.textContent = caption;
+      fig.append(cap);
+      return fig;
+    };
+    const heading = (text, small) => {
+      const h = document.createElement('h2');
+      h.innerHTML = `${text} <small>${small}</small>`;
+      return h;
+    };
+
+    // Lineups: world scale, then every frame at 2x, then the dim-light row.
+    const lineups = document.getElementById('lineups');
+    const ppm = 48; // screen px per world metre
+    {
+      const row = document.createElement('div');
+      row.className = 'lineup';
+      row.dataset.lineup = 'world';
+      for (const k of keys) {
+        const art = BEASTS_ART[k];
+        const s = (ppm * art.height) / art.h;
+        const cv = rowsToCanvas(art.frames.idle, 1);
+        cv.style.width = `${Math.round(art.w * s)}px`;
+        cv.style.height = `${Math.round(art.h * s)}px`;
+        row.append(figure(cv, `${k} ${art.height} m`, { key: k }));
+      }
+      lineups.append(heading('Lineup', `idle, scaled to world height (${ppm} px per metre)`), row);
+    }
+    {
+      const row = document.createElement('div');
+      row.className = 'lineup black';
+      row.dataset.lineup = 'frames';
+      for (const k of keys) {
+        for (const f of Object.keys(BEASTS_ART[k].frames)) {
+          row.append(figure(rowsToCanvas(BEASTS_ART[k].frames[f], 2), `${k} ${f}`, { key: k, frame: f }));
+        }
+      }
+      lineups.append(heading('Lineup', 'every frame at 2x on black'), row);
+    }
+    {
+      const row = document.createElement('div');
+      row.className = 'lineup dungeon';
+      row.dataset.lineup = 'dim';
+      for (const k of keys) {
+        for (const f of Object.keys(BEASTS_ART[k].frames)) {
+          row.append(figure(tinted(BEASTS_ART[k].frames[f], 2, [0.4, 0.4, 0.4], true), `${k} ${f}`, { key: k, frame: f }));
+        }
+      }
+      lineups.append(heading('Dim light', 'every frame at 2x, darkened to 40% and re-dithered onto the palette'), row);
+    }
+
+    const sheet = document.getElementById('sheet');
+    for (const key of keys) {
+      const art = BEASTS_ART[key];
+      const sec = document.createElement('section');
+      sec.className = 'sprite';
+      sec.id = `sprite-${key}`;
+      sec.innerHTML = `<h2>${key} <small>${art.w}&times;${art.h} px &middot; ${art.height} m &middot; frames: ${Object.keys(art.frames).join(', ')}</small></h2>`;
+      const frames = document.createElement('div');
+      frames.className = 'frames';
+      for (const [fname, rows] of Object.entries(art.frames)) {
+        frameCount++;
+        const fr = document.createElement('div');
+        fr.className = 'frame';
+        fr.innerHTML = `<b>${fname}</b>`;
+        const bgs = document.createElement('div');
+        bgs.className = 'bgs';
+        for (const bg of ['black', 'grey']) {
+          const box = document.createElement('div');
+          box.className = `bg ${bg}`;
+          Object.assign(box.dataset, { key, frame: fname, bg });
+          for (const scale of [1, 3, 6]) {
+            box.append(figure(rowsToCanvas(rows, scale), `${scale}x ${bg}`, { key, frame: fname, bg, scale }));
+          }
+          bgs.append(box);
+        }
+        fr.append(bgs);
+        frames.append(fr);
+      }
+      sec.append(frames);
+
+      // dim-dungeon check: both frames darkened, plain and re-dithered onto the palette
+      const h3 = document.createElement('h3');
+      h3.textContent = 'Dim light check (3x)';
+      const dim = document.createElement('div');
+      dim.className = 'bg dungeon';
+      Object.assign(dim.dataset, { key, bg: 'dim' });
+      for (const fname of Object.keys(art.frames)) {
+        dim.append(figure(tinted(art.frames[fname], 3, [0.4, 0.4, 0.4], false), `${fname} 40%`));
+        dim.append(figure(tinted(art.frames[fname], 3, [0.4, 0.4, 0.4], true), `${fname} 40% EGA dither`));
+        dim.append(figure(tinted(art.frames[fname], 3, [0.6, 0.42, 0.26], true), `${fname} torchlight`));
+      }
+      sec.append(h3, dim);
+      sheet.append(sec);
+    }
+
+    document.getElementById('count').textContent =
+      `${keys.length} beasts, ${frameCount} frames, each at 1x, 3x and 6x on black and on mid-grey (#808080), ` +
+      'plus darkened copies (40% plain, 40% re-dithered to the palette, and warm torchlight). Rows validated at module load.';
+    window.__beastsReady = frameCount;
+  } catch (e) {
+    fail(e);
+  }
+</script>
+</body>
+</html>

@@ -12,7 +12,7 @@
 //   io.gameOver(game)
 
 import {
-  NODES, NODE_BY_ID, ADJ, DIST, shortestPath, SHARDS, RELICS, RELIC_BY_ID, FOES,
+  NODES, NODE_BY_ID, ADJ, DIST, shortestPath, SHARDS, RELICS, RELIC_BY_ID, FOES, PROVINCES,
   START, LIMITS, CHAPTERS,
 } from './data.js';
 import * as AI from './ai.js';
@@ -117,6 +117,15 @@ export class Game {
   get players() { return this.s.players; }
   other(p) { return this.s.players.find((q) => q !== p); }
   node(p) { return NODE_BY_ID[p.node]; }
+  // Strengths of the Spire's three guardians.
+  spireFoe(tier) {
+    const g = this.s.gloom;
+    const fb = this.chapter.foeBonus;
+    if (tier === 0) return 9 + Math.floor(g * 0.6) + fb * 2;
+    if (tier === 1) return 11 + Math.floor(g * 0.7) + fb * 2;
+    return 12 + Math.floor(g * 0.6) + fb * 2;
+  }
+
   // The home keep gathers 4 coin of tithes every round, up to 32, while its Warden is away.
   titheDue(p) { return Math.min(32, 4 * (this.s.round - p.lastTithe)); }
   upkeep(p) { return Math.max(1, Math.ceil(p.company / 12)); }
@@ -582,7 +591,7 @@ export class Game {
     await this.show(p, { foe: foeKind,
       glyph: foe.glyph, led: left,
       text: opts.intro || `${foe.name}${opts.place ? ` in ${opts.place}` : ''}! Strength ${left}.`,
-      tone: 'bad', sound: 'alarm', mood: 'danger',
+      tone: 'bad', sound: opts.sound || 'alarm', mood: 'danger',
     });
     let rounds = 0;
     while (rounds++ < 200) {
@@ -605,19 +614,31 @@ export class Game {
       }
       const pWin = ce / (ce + left);
       if (this.rand() < pWin) {
-        const dmg = Math.max(1, Math.round(ce * (0.2 + this.rand() * 0.15)));
+        let dmg = Math.max(1, Math.round(ce * (0.2 + this.rand() * 0.15)));
+        if (foe.armored) dmg = Math.max(1, Math.round(dmg * 0.6));
         left = Math.max(0, left - dmg);
         p.stats.foesSlain += dmg;
         if (left <= 0) break;
-        await this.show(p, { foe: foeKind, glyph: 'battle', led: left, text: `Your company strikes home: ${dmg} of the foe fall. ${left} remain.`, log: null, tone: 'good', sound: 'hit', mood: 'good', battleTick: true, short: true });
+        const hitText = foe.armored
+          ? `Blades skid on armoured shells. Only ${dmg} fall. ${left} remain.`
+          : `Your company strikes home: ${dmg} of the foe fall. ${left} remain.`;
+        await this.show(p, { foe: foeKind, glyph: 'battle', led: left, text: hitText, log: null, tone: 'good', sound: 'hit', mood: 'good', battleTick: true, short: true });
       } else {
-        const loss = 1 + (foe.fierce && this.chance(0.25) ? 1 : 0);
+        // Dragonfire burns two or three at once; other fierce foes sometimes take two.
+        const loss = foe.breath ? 2 + (this.chance(0.2) ? 1 : 0)
+          : foe.venom ? 1 + (this.chance(0.35) ? 1 : 0)
+          : 1 + (foe.fierce && this.chance(0.25) ? 1 : 0);
+        // Trolls heal and imps rob, whether or not the banner holds the line.
+        let extra = '';
+        if (foe.regen && left < strength) { left += 1; extra += ` Its wounds knit: strength ${left}.`; }
+        if (foe.thief && p.coin > 0) { const st = Math.min(p.coin, this.int(2, 3)); p.coin -= st; extra += ` The imps snatch ${st} coin.`; }
         if (p.relics.banner && !bannerUsed) {
           bannerUsed = true;
-          await this.show(p, { foe: foeKind, glyph: 'banner', led: p.company, text: 'The line wavers, but the war banner holds it together.', log: null, tone: 'good', sound: 'rally', mood: 'good', battleTick: true, short: true });
+          await this.show(p, { foe: foeKind, glyph: 'banner', led: p.company, text: `The line wavers, but the war banner holds it together.${extra}`, log: null, tone: 'good', sound: 'rally', mood: 'good', battleTick: true, short: true });
         } else {
           p.company = Math.max(0, p.company - loss);
-          await this.show(p, { foe: foeKind, glyph: 'wound', led: p.company, text: `The ${foe.name} cut down ${loss}. Your company: ${p.company}.`, log: null, tone: 'bad', sound: 'hurt', mood: 'danger', battleTick: true, short: true });
+          if (foe.breath) await this.show(p, { foe: foeKind, glyph: 'dragon', breath: true, led: p.company, text: `Dragonfire rolls over the line. ${loss} of your company burn. Your company: ${p.company}.`, log: null, tone: 'bad', sound: 'fire', mood: 'danger', battleTick: true, short: true });
+          else await this.show(p, { foe: foeKind, glyph: 'wound', led: p.company, text: `The ${foe.name} ${foe.venom ? 'bite' : 'cut'} down ${loss}${foe.venom && loss > 1 ? ', venom taking the second' : ''}. Your company: ${p.company}.${extra}`, log: null, tone: 'bad', sound: 'hurt', mood: 'danger', battleTick: true, short: true });
           if (p.company <= 0) {
             await this.show(p, { foe: foeKind, glyph: 'defeat', text: `${p.human ? 'Your' : "Ser Vael's"} company is broken by the ${foe.name}.`, tone: 'bad', sound: 'defeat', mood: 'danger' });
             return 'lost';
@@ -631,19 +652,23 @@ export class Game {
       const coin = this.int(foe.loot[0], foe.loot[1]);
       p.coin += coin;
       this.clamp(p);
-      lootText = ` They leave ${coin} coin behind.`;
+      lootText = ` ${foe.singular ? "It leaves" : "They leave"} ${coin} coin behind.`;
     }
     await this.show(p, { foe: foeKind, glyph: 'victory', led: p.company, text: `The ${foe.name} ${foe.singular ? 'is' : 'are'} defeated!${lootText}`, tone: 'good', sound: 'win', mood: 'good' });
     return 'won';
   }
 
   // ---------- the wilds ----------
-  wildsTable(camping) {
+  wildsTable(camping, node) {
     const g = this.s.gloom;
+    const terrain = node && node.wedge >= 0 ? PROVINCES[node.wedge].terrain : null;
+    const HOME = { marsh: 'troll', forest: 'spiders', volcanic: 'imps', snow: 'ogre', desert: 'scorpions' };
+    const beasts = ['troll', 'spiders', 'imps', 'ogre', 'scorpions'].map((b) => [b, HOME[terrain] === b ? 9 : 1.5]);
     return [
       ['quiet', camping ? 30 : 20],
-      ['brigands', 14],
-      ['wolves', 8],
+      ['brigands', 11],
+      ['wolves', 6],
+      ...beasts,
       ['wraith', g >= 4 ? 5 + g / 2 : 0],
       ['hounds', g >= 10 ? 4 + g / 3 : 0],
       ['fog', camping ? 0 : 6],
@@ -660,7 +685,7 @@ export class Game {
   }
 
   async wildsEvent(p, n, camping) {
-    const table = this.wildsTable(camping);
+    const table = this.wildsTable(camping, n);
     const total = table.reduce((a, [, w]) => a + w, 0);
     let roll = this.rand() * total;
     let ev = 'quiet';
@@ -691,6 +716,31 @@ export class Game {
       case 'wolves': {
         const str = 2 + this.int(0, 4) + Math.floor(g / 3) + fb;
         await this.battle(p, 'wolves', str, { intro: `A pack of ${str} dire wolves runs down ${your} column!` });
+        return;
+      }
+      case 'troll': {
+        const str = 5 + this.int(0, 3) + Math.floor(g / 2) + fb;
+        await this.battle(p, 'troll', str, { intro: `A Bog Troll heaves itself out of the mire at ${n.name}, worth ${str} men! Its wounds close as fast as you make them.` });
+        return;
+      }
+      case 'spiders': {
+        const str = 3 + this.int(0, 4) + Math.floor(g / 2) + fb;
+        await this.battle(p, 'spiders', str, { intro: `Giant spiders drop on silk lines at ${n.name}, ${str} strong! Their bite is venomous.` });
+        return;
+      }
+      case 'imps': {
+        const str = 3 + this.int(0, 4) + Math.floor(g / 3) + fb;
+        await this.battle(p, 'imps', str, { intro: `Cinder imps pour out of a smoking vent at ${n.name}, ${str} of them, grabbing at purses!` });
+        return;
+      }
+      case 'ogre': {
+        const str = 7 + this.int(0, 3) + Math.floor(g / 2) + fb;
+        await this.battle(p, 'ogre', str, { intro: `A Frost Ogre blocks the road at ${n.name}, worth ${str} men!` });
+        return;
+      }
+      case 'scorpions': {
+        const str = 4 + this.int(0, 3) + Math.floor(g / 2) + fb;
+        await this.battle(p, 'scorpions', str, { intro: `Dune scorpions burst from the sand at ${n.name}, ${str} strong! Their shells turn blades.` });
         return;
       }
       case 'hounds': {
@@ -822,9 +872,9 @@ export class Game {
     }
     if (this.fp(p)) return this.spireFP(p);
     const g = this.s.gloom;
-    const fb = this.chapter.foeBonus;
+    const You = p.human ? 'You' : 'Ser Vael';
     if (p.spireTier === 0) {
-      const str = 10 + Math.floor(g * 0.8) + fb * 2;
+      const str = this.spireFoe(0);
       const key = await this.ask(p, { kind: 'ascend', tier: 0, foeLeft: str, glyph: 'sentinels', led: str, text: `Sentinels of stone guard the Spire's gate, ${str} strong. Assault the gate?`, options: ['yes', 'no'] });
       if (key !== 'yes') return;
       const r = await this.battle(p, 'sentinels', str, { intro: 'The Sentinels grind into motion!' });
@@ -833,16 +883,26 @@ export class Game {
       await this.show(p, { glyph: 'spire', text: `${p.human ? 'You hold' : 'Ser Vael holds'} the gate of the Spire.`, tone: 'good', sound: 'win', mood: 'magic', flare: true });
     }
     if (p.spireTier === 1) {
-      const str = 13 + Math.floor(g * 0.9) + fb * 2;
+      const str = this.spireFoe(1);
       const key = await this.ask(p, { kind: 'ascend', tier: 1, foeLeft: str, glyph: 'ashwarden', led: str, text: `The Ash Warden waits in the hall, worth ${str} men. Climb on?`, options: ['yes', 'no'] });
       if (key !== 'yes') return;
       const r = await this.battle(p, 'ashwarden', str, { intro: 'The Ash Warden draws a sword of fire!' });
       if (r !== 'won') return;
       p.spireTier = 2;
+      await this.show(p, { glyph: 'dragon', text: 'The Ash Warden falls. Above the hall, something vast stirs on the crown.', tone: 'neutral', sound: 'roar', mood: 'danger' });
     }
     if (p.spireTier === 2) {
+      const str = this.spireFoe(2);
+      const key = await this.ask(p, { kind: 'ascend', tier: 2, foeLeft: str, glyph: 'dragon', led: str, text: `The Crown Dragon is coiled about the Spire's peak, worth ${str} men. Its fire burns two or three at a time. Face it?`, options: ['yes', 'no'] });
+      if (key !== 'yes') return;
+      const r = await this.battle(p, 'dragon', str, { intro: 'The Crown Dragon spreads its wings and roars!', sound: 'roar' });
+      if (r !== 'won') return;
+      p.spireTier = 3;
+      await this.show(p, { glyph: 'kindle', text: `The dragon crashes across the parapet and is still. ${You} stand${p.human ? '' : 's'} alone before the crown.`, tone: 'good', sound: 'win', mood: 'magic', flare: true });
+    }
+    if (p.spireTier === 3) {
       const len = this.chapter.kindleBase + Math.floor(g / 6);
-      const key = await this.ask(p, { kind: 'ascend', tier: 2, glyph: 'kindle', led: len, text: `The crown of the Spire. It will sing the order of kindling, ${len} notes long. Set your shards in the same order. Begin?`, options: ['yes', 'no'] });
+      const key = await this.ask(p, { kind: 'ascend', tier: 3, glyph: 'kindle', led: len, text: `The crown of the Spire. It will sing the order of kindling, ${len} notes long. Set your shards in the same order. Begin?`, options: ['yes', 'no'] });
       if (key !== 'yes') return;
       await this.kindleRite(p);
     }
@@ -878,10 +938,8 @@ export class Game {
 
   // First-person Spire: walk the gate hall, the hall of ash and the crown.
   async spireFP(p) {
-    const key = await this.ask(p, { kind: 'ascend', tier: p.spireTier, glyph: 'spire', text: `The gate of the Spire stands open to the bearer of three shards. ${['Sentinels guard the gate hall.', 'The gate is yours; the Ash Warden waits above.', 'The way to the crown is open.'][p.spireTier]} Enter?`, options: ['yes', 'no'] });
+    const key = await this.ask(p, { kind: 'ascend', tier: p.spireTier, glyph: 'spire', text: `The gate of the Spire stands open to the bearer of three shards. ${['Sentinels guard the gate hall.', 'The gate is yours; the Ash Warden waits above.', 'The Ash Warden is dead; the Crown Dragon waits at the peak.', 'The way to the crown is open.'][p.spireTier]} Enter?`, options: ['yes', 'no'] });
     if (key !== 'yes') return;
-    const g = this.s.gloom;
-    const fb = this.chapter.foeBonus;
     for (let guard = 0; guard < 60; guard++) {
       const r = await this.io.explore(p, { site: 'spire', tier: p.spireTier });
       if (r === 'leave') {
@@ -889,7 +947,7 @@ export class Game {
         return;
       }
       if (r === 'gate' && p.spireTier === 0) {
-        const res = await this.battle(p, 'sentinels', 10 + Math.floor(g * 0.8) + fb * 2, { intro: 'The Sentinels grind into motion!' });
+        const res = await this.battle(p, 'sentinels', this.spireFoe(0), { intro: 'The Sentinels grind into motion!' });
         if (res === 'lost') return;
         if (res === 'won') {
           p.spireTier = 1;
@@ -898,15 +956,25 @@ export class Game {
         continue;
       }
       if (r === 'hall' && p.spireTier === 1) {
-        const res = await this.battle(p, 'ashwarden', 13 + Math.floor(g * 0.9) + fb * 2, { intro: 'The Ash Warden draws a sword of fire!' });
+        const res = await this.battle(p, 'ashwarden', this.spireFoe(1), { intro: 'The Ash Warden draws a sword of fire!' });
         if (res === 'lost') return;
         if (res === 'won') {
           p.spireTier = 2;
-          await this.show(p, { glyph: 'kindle', text: 'The Ash Warden falls. The last stair climbs to the crown.', tone: 'good', sound: 'win', mood: 'magic', flare: true });
+          await this.show(p, { glyph: 'dragon', text: 'The Ash Warden falls. The last stair climbs to the crown, and something vast stirs up there.', tone: 'neutral', sound: 'roar', mood: 'danger' });
         }
         continue;
       }
-      if (r === 'crown' && p.spireTier === 2) {
+      if (r === 'dragon' && p.spireTier === 2) {
+        const str = this.spireFoe(2);
+        const res = await this.battle(p, 'dragon', str, { intro: `The Crown Dragon uncoils from the crown, worth ${str} of your company!`, sound: 'roar' });
+        if (res === 'lost') return;
+        if (res === 'won') {
+          p.spireTier = 3;
+          await this.show(p, { glyph: 'kindle', text: 'The dragon crashes across the floor and is still. The crown is yours to kindle.', tone: 'good', sound: 'win', mood: 'magic', flare: true });
+        }
+        continue;
+      }
+      if (r === 'crown' && p.spireTier === 3) {
         const res = await this.kindleRite(p);
         if (res === 'won' || res === 'lost') return;
       }

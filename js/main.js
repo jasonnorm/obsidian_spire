@@ -76,9 +76,9 @@ function makeIO(myGen) {
       if (prompt.kind === 'move' || !key || typeof key !== 'string') return;
       con.render({ ...prompt, mood: prompt.battle ? 'danger' : 'rival' });
       const browsing = key === 'next' || key === 'end';
-      await wait((browsing ? 160 : 420) * con.speed);
+      await wait((browsing ? 200 : 525) * con.speed);
       con.flashKey?.(key);
-      await wait((browsing ? 90 : 260) * con.speed);
+      await wait((browsing ? 115 : 325) * con.speed);
       if (!alive()) return frozen();
     },
     chooseMove(p, options) {

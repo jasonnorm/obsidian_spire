@@ -30,8 +30,8 @@ Press `V` (or the Warden's eye button) at any point in a game to switch from the
 
 - **The look.** The scene is rendered at 300 lines and every pixel is snapped to sixteen colours picked from the EGA's 64, with a 4x4 ordered dither, then scaled up with hard edges. Nothing is filtered or smoothed, so everything on screen reads like a 640x350 EGA display, only sharper.
 - **Overland.** The board's map is rebuilt at walking scale (seven metres to a board unit). Keeps, market stalls, domed shrines, barrow mounds and the Spire are life size, the provinces are tiled with their own ground textures, mountains ring the horizon, and the Spire's crown glows in whatever colour the console is showing. `←`/`→` (or A/D) turn you toward each road, `↑` (or W) rides it, and the console's Stay key still works.
-- **Barrows and the Spire.** These become grid dungeons. `W`/`S` step, `A`/`D` turn, `Q`/`E` sidestep and `Esc` climbs out. The automap fills in as your torch shows the way. Walking into a barrow's antechamber wakes its wights, the tomb gate brings out the Barrow King, and the shard sits on the altar behind him. The Spire is three floors: the Sentinels' gate hall, the Ash Warden's hall and the crown room, where three sockets wait for the kindling song.
-- **The art.** Every foe, townsperson, prop and texture is original pixel art in the 16-colour palette: brigands, dire wolves, Gloom Hounds, wraiths, barrow-wights, the Barrow King, the Spire Sentinels, the Ash Warden, the merchant, priest, steward, pilgrim, peddler, sellsword, raven and Ser Vael himself, plus your own sword hand at the bottom of the screen.
+- **Barrows and the Spire.** These become grid dungeons. `W`/`S` step, `A`/`D` turn, `Q`/`E` sidestep and `Esc` climbs out. The automap fills in as your torch shows the way. Walking into a barrow's antechamber wakes its wights, the tomb gate brings out the Barrow King, and the shard sits on the altar behind him. The Spire is three floors: the Sentinels' gate hall, the Ash Warden's hall and the crown room, where the Crown Dragon lies coiled behind the crown and three sockets wait for the kindling song.
+- **The art.** Every foe, townsperson, prop and texture is original pixel art in the 16-colour palette: brigands, dire wolves, Gloom Hounds, wraiths, Bog Trolls, Giant Spiders, Cinder Imps, Frost Ogres, Dune Scorpions, barrow-wights, the Barrow King, the Spire Sentinels, the Ash Warden, the Crown Dragon, the merchant, priest, steward, pilgrim, peddler, sellsword, raven and Ser Vael himself, plus your own sword hand at the bottom of the screen.
 
 ## Rules in brief
 
@@ -43,8 +43,8 @@ On your turn, click a glowing space to travel (two roads with a Swift Steed) or 
 | Market | Sellswords, provisions, and three of the six relics. |
 | Shrine | Pray for pilgrims, pay the oracle to reveal a barrow's shard, buy a ward. |
 | Barrow | Fight wights in the antechamber to read the sigil, then a Barrow King in the tomb for the shard. |
-| Wilds | A random event: brigands, wolves, wraiths, fog, storms, fever, caches, sellswords, pilgrims, peddlers, omens, Gloom surges. |
-| The Spire | With all three shards: beat the Sentinels, then the Ash Warden, then repeat the crown's note sequence on the sockets. |
+| Wilds | A random event: brigands, wolves, wraiths, fog, storms, fever, caches, sellswords, pilgrims, peddlers, omens, Gloom surges, or the province's own beast (Bog Trolls that heal, venomous Giant Spiders, coin-stealing Cinder Imps, hard-hitting Frost Ogres, armoured Dune Scorpions). |
+| The Spire | With all three shards: beat the Sentinels, then the Ash Warden, then the fire-breathing Crown Dragon, then repeat the crown's note sequence on the sockets. Beaten guardians stay beaten. |
 
 Battles are fought one exchange at a time. Each Fight press is a roll weighted by your company against the foe's strength, and you can Flee whenever you like. If your company is wiped out you're routed: home with five survivors and half your purse, and the Gloom goes up a notch.
 
@@ -57,8 +57,8 @@ Three chapters, each unlocked by clearing the one before. Progress and a mid-gam
 | Chapter | Gloom start / limit | Foe bonus | Crown song | Rival skill |
 | --- | --- | --- | --- | --- |
 | I. The Kindling Road | 0 / 24 | +0 | 4 notes and up | 0.55 |
-| II. Ashfall | 2 / 22 | +1 | 5 notes and up | 0.75 |
-| III. The Long Night | 4 / 20 | +2 | 6 notes and up | 0.95 |
+| II. Ashfall | 2 / 23 | +1 | 5 notes and up | 0.75 |
+| III. The Long Night | 4 / 22 | +2 | 6 notes and up | 0.95 |
 
 ## Source layout
 
@@ -80,7 +80,7 @@ js/fp/gfx.js        pixel textures, sprites and the EGA dither pass
 js/fp/world.js      the overland Reach at walking scale
 js/fp/dungeon.js    barrow and Spire floor maps and their geometry
 js/fp/view.js       first-person camera, controls, HUD and staging
-js/fp/sprites-*.js  pixel art: foes, people, props
+js/fp/sprites-*.js  pixel art: foes, province beasts, people, props
 js/fp/textures.js   procedural pixel textures and the mountain backdrop
 vendor/             three.js r160 module build and OrbitControls (MIT)
 tools/sim.mjs       headless balance simulation, the computer playing both seats

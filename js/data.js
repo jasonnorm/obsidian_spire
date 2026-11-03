@@ -142,6 +142,13 @@ export const FOES = {
   barrowking: { name: 'Barrow King', glyph: 'wight', fierce: true, singular: true, loot: [0, 0] },
   sentinels: { name: 'Spire Sentinels', glyph: 'sentinels', fierce: true, loot: [0, 0] },
   ashwarden: { name: 'Ash Warden', glyph: 'ashwarden', fierce: true, singular: true, loot: [0, 0] },
+  dragon: { name: 'Crown Dragon', glyph: 'dragon', fierce: true, singular: true, breath: true, loot: [0, 0] },
+  // Province beasts met on the roads.
+  troll: { name: 'Bog Troll', glyph: 'troll', fierce: false, singular: true, regen: true, loot: [3, 8] },
+  spiders: { name: 'Giant Spiders', glyph: 'spiders', fierce: false, venom: true, loot: [0, 0] },
+  imps: { name: 'Cinder Imps', glyph: 'imps', fierce: false, thief: true, loot: [0, 0] },
+  ogre: { name: 'Frost Ogre', glyph: 'ogre', fierce: true, singular: true, loot: [6, 14] },
+  scorpions: { name: 'Dune Scorpions', glyph: 'scorpions', fierce: false, armored: true, loot: [0, 0] },
 };
 
 export const START = { company: 12, coin: 40, provisions: 20 };
@@ -164,7 +171,7 @@ export const CHAPTERS = [
   {
     id: 2,
     title: 'Ashfall',
-    gloomStart: 2, gloomMax: 22, pulseEvery: 2, foeBonus: 1, kindleBase: 5, rivalSkill: 0.75,
+    gloomStart: 2, gloomMax: 23, pulseEvery: 2, foeBonus: 1, kindleBase: 5, rivalSkill: 0.75,
     intro: [
       'The kindled crown held for a season. Then the ash began to fall again.',
       'The barrows have been resealed and the shards scattered anew. The dead in them are hungrier.',
@@ -174,7 +181,7 @@ export const CHAPTERS = [
   {
     id: 3,
     title: 'The Long Night',
-    gloomStart: 4, gloomMax: 20, pulseEvery: 2, foeBonus: 2, kindleBase: 6, rivalSkill: 0.95,
+    gloomStart: 4, gloomMax: 22, pulseEvery: 2, foeBonus: 2, kindleBase: 6, rivalSkill: 0.95,
     intro: [
       'The sun has not fully risen in forty days. The Spire pulses every night now.',
       'This is the last kindling the Reach can survive. Fail, and the Gloom will cover all six provinces.',

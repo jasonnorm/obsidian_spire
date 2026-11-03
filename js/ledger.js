@@ -69,6 +69,7 @@ export class Ledger {
             <div class="lg-flag" data-flag="ward" title="A ward turns aside one wraith, fever or curse"><span class="hole"><span class="peg"></span></span><small>Ward</small></div>
             <div class="lg-flag" data-flag="gate" title="The Spire's gate is taken"><span class="hole"><span class="peg"></span></span><small>Gate</small></div>
             <div class="lg-flag" data-flag="hall" title="The Ash Warden is beaten"><span class="hole"><span class="peg"></span></span><small>Hall</small></div>
+            <div class="lg-flag" data-flag="dragon" title="The Crown Dragon is slain"><span class="hole"><span class="peg"></span></span><small>Dragon</small></div>
           </div>
         </div>
       </div>`;
@@ -102,7 +103,7 @@ export class Ledger {
     }
     for (const el of this.root.querySelectorAll('.lg-relic')) el.classList.toggle('owned', !!p.relics[el.dataset.relic]);
     for (const el of this.root.querySelectorAll('.lg-shard')) el.classList.toggle('owned', !!p.shards[el.dataset.shard]);
-    const flags = { ward: p.ward, gate: p.spireTier >= 1, hall: p.spireTier >= 2 };
+    const flags = { ward: p.ward, gate: p.spireTier >= 1, hall: p.spireTier >= 2, dragon: p.spireTier >= 3 };
     for (const el of this.root.querySelectorAll('.lg-flag')) el.classList.toggle('owned', !!flags[el.dataset.flag]);
     this.root.classList.toggle('active', !!active);
     this.turnEl.textContent = active ? (p.id === 'p' ? 'Your turn' : 'Riding') : '';

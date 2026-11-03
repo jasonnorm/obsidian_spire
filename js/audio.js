@@ -154,6 +154,18 @@ const SOUNDS = {
     seq([['C5', 1], ['C5', 0.5], ['C5', 0.5], ['G5', 2], ['E5', 1], ['G5', 1], ['C6', 4], [null, 1], ['A5', 1], ['B5', 1], ['C6', 4]], { bpm: 300, vol: 0.2 });
     seq([['C3', 4], ['G3', 4], ['C3', 4], ['F3', 2], ['G3', 2], ['C3', 4]], { bpm: 300, type: 'triangle', vol: 0.35 });
   },
+  roar: () => {
+    const t = ctx.currentTime;
+    tone(110, t, 1.1, { type: 'sawtooth', vol: 0.22, slide: 0.45, attack: 0.08, release: 0.5 });
+    tone(116, t + 0.02, 1.1, { type: 'square', vol: 0.12, slide: 0.42, attack: 0.08, release: 0.5 });
+    noise(t, 1.2, { vol: 0.3, freq: 260, q: 0.6 });
+  },
+  fire: () => {
+    const t = ctx.currentTime;
+    noise(t, 0.9, { vol: 0.4, freq: 900, q: 0.4 });
+    noise(t + 0.05, 0.7, { vol: 0.25, freq: 2600, q: 0.8 });
+    tone(220, t, 0.6, { type: 'sawtooth', vol: 0.12, slide: 0.5 });
+  },
   sun: () => seq([['E5', 1]], { bpm: 300, vol: 0.2 }),
   moon: () => seq([['A4', 1]], { bpm: 300, vol: 0.2 }),
   star: () => seq([['C#6', 1]], { bpm: 300, vol: 0.2 }),

@@ -6,16 +6,28 @@ import { NODES, NODE_BY_ID, DIST, shortestPath, SHARDS, RELIC_BY_ID } from './da
 
 const SHARD_IDS = SHARDS.map((s) => s.id);
 
+// How each foe bends the battle maths: `hit` scales the damage the company
+// deals, `loss` is the average loss per lost exchange, `heal` is strength
+// regained per lost exchange.
+const FOE_FACTORS = {
+  sentinels: { loss: 1.25 }, ashwarden: { loss: 1.25 }, barrowking: { loss: 1.25 }, hounds: { loss: 1.25 },
+  ogre: { loss: 1.25 }, spiders: { loss: 1.35 }, dragon: { loss: 2.2 },
+  scorpions: { hit: 0.6 }, troll: { heal: 1 },
+};
+export function foeFactor(kind) { return { hit: 1, loss: 1.12, heal: 0, ...(FOE_FACTORS[kind] || {}) }; }
+
 // Deterministic attrition estimate using the engine's battle maths.
-export function expectedLoss(company, foe, blade) {
+export function expectedLoss(company, foe, blade, kind) {
+  const fx = foeFactor(kind);
   let c = company;
   let f = foe;
   let guard = 0;
   while (f > 0 && c > 0 && guard++ < 500) {
     const ce = c * (blade ? 1.33 : 1);
     const p = ce / (ce + f);
-    f -= p * Math.max(1, 0.275 * ce);
-    c -= (1 - p) * 1.12;
+    f -= p * Math.max(1, 0.275 * ce * fx.hit);
+    f += (1 - p) * fx.heal;
+    c -= (1 - p) * fx.loss;
   }
   return c <= 0 ? Infinity : company - c;
 }
@@ -43,7 +55,7 @@ function chainNeed(fights, blade, leftover) {
   for (let c = 3; c < 99; c++) {
     let left = c;
     for (const f of fights) {
-      const l = expectedLoss(left, f, blade);
+      const l = typeof f === 'number' ? expectedLoss(left, f, blade) : expectedLoss(left, f.str, blade, f.kind);
       left = l === Infinity ? 0 : left - l;
     }
     if (left >= leftover) return c;
@@ -60,13 +72,11 @@ function companyFor(foe, blade, keepFrac) {
   return 99;
 }
 
+// Company needed to clear the Spire's remaining guardians in one climb.
 export function spireNeed(game, p) {
-  const g = game.s.gloom;
-  const fb = game.chapter.foeBonus;
   const tiers = [];
-  if (p.spireTier <= 0) tiers.push(10 + Math.floor(g * 0.8) + fb * 2);
-  if (p.spireTier <= 1) tiers.push(13 + Math.floor(g * 0.9) + fb * 2);
-  return chainNeed(tiers, p.relics.blade, 6);
+  for (let t = Math.max(0, p.spireTier); t <= 2; t++) tiers.push({ str: game.spireFoe(t), kind: ['sentinels', 'ashwarden', 'dragon'][t] });
+  return tiers.length ? chainNeed(tiers, p.relics.blade, 6) : 4;
 }
 
 function lackingShards(p) {
@@ -250,14 +260,15 @@ export function decide(game, p, prompt) {
       if (prompt.what === 'company') return p.coin >= prompt.price + 4 && p.company < targetCompany(game, p) + 4 ? 'yes' : 'no';
       return relicPriority(game, p, prompt.relic) >= 2 && p.coin >= prompt.price + 8 ? 'yes' : 'no';
     case 'battle': {
-      const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade);
-      if (prompt.foeLeft <= 2 && p.company >= 2) return 'fight';
-      const keep = prompt.foe === 'sentinels' || prompt.foe === 'ashwarden' ? 4 : 2;
+      const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade, prompt.foe);
+      if (prompt.foeLeft <= 2 && p.company >= 3) return 'fight';
+      const keep = ['sentinels', 'ashwarden', 'dragon'].includes(prompt.foe) ? 4 : 2;
       return l !== Infinity && p.company - l >= keep ? 'fight' : 'flee';
     }
     case 'ascend': {
-      if (prompt.tier === 2) return 'yes';
-      const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade);
+      if (prompt.tier === 3) return 'yes';
+      const kind = ['sentinels', 'ashwarden', 'dragon'][prompt.tier];
+      const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade, kind);
       return l !== Infinity && p.company - l >= 6 ? 'yes' : 'no';
     }
     case 'kindleRetry': return p.company >= 3 ? 'yes' : 'no';

@@ -716,7 +716,7 @@ export class Board3D {
         const to = steps[i++];
         const from = pawn.position.clone();
         const dest = this.slotPosition(pid, to, this.pawnAt[otherId]);
-        const dur = teleport ? 900 : drift ? 900 : 380;
+        const dur = (teleport ? 900 : drift ? 900 : 380) * (pid === 'r' ? 1.25 : 1);
         const hop = teleport ? 3.5 : drift ? 0.25 : 0.55;
         this.tween(pawn, from, dest, dur, hop).then(() => { onStep?.(to); next(); });
       };

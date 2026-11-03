@@ -8,6 +8,7 @@ import { EgaPipeline, makeSprite, setFrame } from './gfx.js';
 import { Overland, wpos, yawTo, EYE } from './world.js';
 import { Level, barrowMap, SPIRE_MAPS, CELL, DIRS, drawAutomap } from './dungeon.js';
 import { FOES_ART } from './sprites-foes.js';
+import { BEASTS_ART } from './sprites-beasts.js';
 import { PEOPLE_ART } from './sprites-people.js';
 import { PROPS_ART } from './sprites-props.js';
 import { rowsToCanvas, PALETTE } from './palette.js';
@@ -15,6 +16,12 @@ import * as audio from '../audio.js';
 
 const INTERNAL_H = 300;
 const FOE_STAGE = {
+  dragon: { art: 'dragon', n: 1, height: 4.8 },
+  troll: { set: 'beasts', art: 'troll', n: 1 },
+  spiders: { set: 'beasts', art: 'spider', n: 3 },
+  imps: { set: 'beasts', art: 'imp', n: 3 },
+  ogre: { set: 'beasts', art: 'ogre', n: 1 },
+  scorpions: { set: 'beasts', art: 'scorpion', n: 2 },
   brigands: { art: 'brigand', n: 3 },
   wolves: { art: 'wolf', n: 2 },
   hounds: { art: 'hound', n: 2 },
@@ -479,6 +486,10 @@ export class FirstPersonView {
     this.showHand(this.mode === 'dungeon');
   }
 
+  dropLurker() {
+    if (this.lurker) { this.lurker.parent?.remove(this.lurker); this.lurker = null; }
+  }
+
   forwardRoom() {
     if (this.mode !== 'dungeon') return 7;
     let d = 0;
@@ -488,7 +499,7 @@ export class FirstPersonView {
     return Math.max(2.2, Math.min(6.5, d * CELL + CELL / 2 - 0.8));
   }
 
-  spawn(set, art, n, { dist, lift = 0, key }) {
+  spawn(set, art, n, { dist, lift = 0, key, height }) {
     const def = set[art];
     if (!def) return;
     this.clearStage();
@@ -496,10 +507,10 @@ export class FirstPersonView {
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const d = Math.min(dist ?? this.forwardRoom(), this.forwardRoom());
-    const width = (def.height * def.w) / def.h;
+    const width = ((height ?? def.height) * def.w) / def.h;
     const spacing = Math.min(width * 1.05, this.mode === 'dungeon' ? 3.4 / Math.max(1, n - 1 || 1) + 0.4 : 9);
     for (let i = 0; i < n; i++) {
-      const s = makeSprite(def, art);
+      const s = makeSprite(def, art, { height });
       const off = (i - (n - 1) / 2) * spacing;
       const depth = d + (n > 1 && i % 2 === 1 ? 0.8 : 0);
       s.position.set(this.pos.x + fwd.x * depth + right.x * off, lift, this.pos.z + fwd.z * depth + right.z * off);
@@ -538,7 +549,17 @@ export class FirstPersonView {
     if (foe) {
       this.showHand(true);
       const key = `foe:${evt.foe}`;
-      if (this.stageKey !== key) this.spawn(FOES_ART, foe.art, foe.n, { key });
+      if (this.stageKey !== key) {
+        if (evt.foe === 'dragon') this.dropLurker();
+        this.spawn(foe.set === 'beasts' ? BEASTS_ART : FOES_ART, foe.art, foe.n, { key, height: foe.height });
+      }
+      if (evt.breath) {
+        const a = this.actors[0];
+        if (a) { setFrame(a, 'attack'); setTimeout(() => setFrame(a, 'idle'), 650); }
+        this.flash = 0.6;
+        this.flashColor = '#ffaa55';
+        this.shake = 0.35;
+      }
       if (evt.glyph === 'battle') { this.swing(); this.hitActor(); this.flash = 0.12; this.flashColor = '#ffffff'; }
       if (evt.glyph === 'wound') {
         const a = this.actors[0];
@@ -654,6 +675,7 @@ export class FirstPersonView {
   }
 
   async enterDungeon(opts, key) {
+    this.exploreOpts = opts;
     if (this.active) await this.fadeTo(1, 300);
     this.clearStage();
     this.mode = 'dungeon';
@@ -689,6 +711,15 @@ export class FirstPersonView {
       this.crystalLight = new THREE.PointLight(this.moodColor || '#c49bff', 18, 30, 1.2);
       this.crystalLight.position.set(w.x, 5, w.z);
       scene.add(this.crystalLight);
+      // The Crown Dragon waits coiled behind the crown until you step up to it.
+      this.lurker = null;
+      if ((this.exploreOpts?.tier ?? 0) === 2 && FOES_ART.dragon) {
+        const d = makeSprite(FOES_ART.dragon, 'dragon');
+        d.position.set(w.x, 0, w.z - CELL * 0.75);
+        d.userData.selfLit = true;
+        scene.add(d);
+        this.lurker = d;
+      }
     }
     this.scene = scene;
     const start = lvl.find(at) || lvl.find('S') || lvl.find('v');
@@ -809,7 +840,8 @@ export class FirstPersonView {
     if (ch === 'S' && this.floor === 0) return this.finishExplore('leave');
     if (ch === 'g' && o.tier === 0) return this.finishExplore('gate');
     if (ch === 'h' && o.tier === 1) return this.finishExplore('hall');
-    if (ch === 'C' && o.tier >= 2) return this.finishExplore('crown');
+    if (ch === 'r' && o.tier === 2) return this.finishExplore('dragon');
+    if (ch === 'C' && o.tier >= 3) return this.finishExplore('crown');
     if (ch === 'U') {
       if ((this.floor === 0 && o.tier >= 1) || (this.floor === 1 && o.tier >= 2)) return this.changeFloor(this.floor + 1, 'v');
       this.say?.('barred', o);

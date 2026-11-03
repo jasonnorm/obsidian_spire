@@ -209,7 +209,7 @@ export class SpireConsole {
     const len = (evt.text || '').length;
     let ms = (evt.short ? 650 : 1250) + len * (evt.short ? 12 : 22);
     if (evt.battleTick) ms = 520;
-    if (rival) ms *= 0.6;
+    if (rival) ms *= 0.75; // the rival's turn plays at 80% of the old pace
     ms *= this.speed;
     await this.wait(ms);
   }
@@ -369,7 +369,7 @@ export class SpireConsole {
     await this.playSequence(seq);
     this.render({ glyph: 'rival', led: seq.length, text: ok ? 'Ser Vael sets the shards...' : 'Ser Vael sets the shards... and falters.', mood: 'rival' });
     for (let i = 0; i < seq.length; i++) {
-      await this.flashSocket(seq[i], 300);
+      await this.flashSocket(seq[i], 375);
       if (!ok && i === Math.floor(seq.length / 2)) break;
     }
   }

@@ -7,6 +7,7 @@
 //   X  altar (blocked)    b  bones             T  torches on the walls round this cell
 //   c  chest (blocked)    g  gate guard zone   h  hall guard zone
 //   U  stair up           v  stair down        C  crown dais
+//   r  the dragon's ground (crown floor)
 //   o  shard socket (blocked)   Z  statue (blocked)
 
 import * as THREE from 'three';
@@ -97,13 +98,15 @@ export const SPIRE_MAPS = [
     '#############',
   ],
   [
-    '#########',
-    '##T.o.T##',
-    '#.......#',
-    '#o..C..o#',
-    '#T.....T#',
-    '##..v..##',
-    '#########',
+    '###########',
+    '###T.o.T###',
+    '##.......##',
+    '#o...C...o#',
+    '#T.......T#',
+    '#rrrrrrrrr#',
+    '##.......##',
+    '###..v..###',
+    '###########',
   ],
 ];
 
@@ -322,7 +325,7 @@ export function drawAutomap(canvas, level, seen, pos, dir) {
     for (let x = 0; x < level.w; x++) {
       if (!seen.has(`${x},${y}`)) continue;
       const ch = level.at(x, y);
-      g.fillStyle = ch === '#' ? '#555555' : ch === 'a' || ch === 'g' || ch === 'h' ? '#550000' : ch === 't' || ch === 'D' ? '#000055' : ch === 'U' || ch === 'v' || ch === 'S' ? '#aa5500' : '#aaaaaa';
+      g.fillStyle = ch === '#' ? '#555555' : ch === 'a' || ch === 'g' || ch === 'h' || ch === 'r' ? '#550000' : ch === 't' || ch === 'D' ? '#000055' : ch === 'U' || ch === 'v' || ch === 'S' ? '#aa5500' : '#aaaaaa';
       if (BLOCKED.has(ch) && ch !== '#') g.fillStyle = '#ffff55';
       g.fillRect(ox + x * s, oy + y * s, s, s);
     }
