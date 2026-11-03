@@ -195,7 +195,7 @@ export class FirstPersonView {
       this.level?.update(t, cam.position);
       if (this.torch) {
         this.torch.position.copy(cam.position);
-        this.torch.intensity = 6 + Math.sin(t * 13) * 0.5 + Math.sin(t * 7.3) * 0.4;
+        this.torch.intensity = 8 + Math.sin(t * 13) * 0.6 + Math.sin(t * 7.3) * 0.5;
       }
       if (this.crystal) this.crystal.rotation.y = t * 0.6;
     }
@@ -674,8 +674,8 @@ export class FirstPersonView {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color('#000000');
     scene.fog = new THREE.Fog('#000000', 3, this.site === 'spire' ? 26 : 18);
-    scene.add(new THREE.HemisphereLight(this.site === 'spire' ? '#aa88ff' : '#ffddaa', '#000000', this.site === 'spire' ? 0.25 : 0.12));
-    this.torch = new THREE.PointLight('#ffaa55', 6, 15, 1.4);
+    scene.add(new THREE.HemisphereLight(this.site === 'spire' ? '#aa88ff' : '#ffddaa', '#000000', this.site === 'spire' ? 0.3 : 0.2));
+    this.torch = new THREE.PointLight('#ffaa55', 8, 17, 1.3);
     scene.add(this.torch);
     scene.add(lvl.group);
     this.crystal = null;

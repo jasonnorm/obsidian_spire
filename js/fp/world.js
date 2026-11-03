@@ -96,7 +96,7 @@ export class Overland {
     // Lights.
     this.hemi = new THREE.HemisphereLight('#aab0ff', '#553311', 0.9);
     s.add(this.hemi);
-    this.sun = new THREE.DirectionalLight('#ffcc88', 1.5);
+    this.sun = new THREE.DirectionalLight('#ffe6cc', 1.35);
     this.sun.position.set(-120, 60, 80);
     s.add(this.sun);
 
@@ -168,20 +168,32 @@ export class Overland {
     }
   }
 
-  // Pick the direction around a node that is furthest from every road.
-  clearDirection(id) {
+  // Pick where a site's building goes: away from the node's own roads, clear
+  // of every other crossroads and road, and preferably outward.
+  clearDirection(id, dist, radius) {
     const p = wpos(id);
     const roads = ADJ[id].map((o) => {
       const q = o === 'S' ? new THREE.Vector3() : wpos(o);
       return Math.atan2(q.x - p.x, q.z - p.z);
     });
+    const segs = EDGES.map(([a, b]) => [a === 'S' ? new THREE.Vector3() : wpos(a), b === 'S' ? new THREE.Vector3() : wpos(b)]);
+    const segDist = (x, z, a, b) => {
+      const vx = b.x - a.x; const vz = b.z - a.z;
+      const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (z - a.z) * vz) / (vx * vx + vz * vz)));
+      return Math.hypot(x - (a.x + t * vx), z - (a.z + t * vz));
+    };
     const outward = Math.atan2(p.x, p.z);
     let best = outward;
     let bestScore = -Infinity;
     for (let d = 0; d < 360; d += 5) {
       const a = (d * Math.PI) / 180;
+      const cx = p.x + Math.sin(a) * dist;
+      const cz = p.z + Math.cos(a) * dist;
       const clear = Math.min(...roads.map((r) => Math.abs(Math.atan2(Math.sin(a - r), Math.cos(a - r)))));
-      const score = clear + 0.35 * Math.cos(a - outward);
+      const nodeGap = Math.min(...NODES.filter((n) => n.id !== id).map((n) => (n.type === 'spire' ? Math.hypot(cx, cz) - 14 : Math.hypot(n.x * K - cx, n.z * K - cz))));
+      const roadGap = Math.min(...segs.map(([s0, s1]) => segDist(cx, cz, s0, s1)));
+      const crowd = Math.max(0, radius + 7 - nodeGap) / 4 + Math.max(0, radius + 1 - roadGap) / 3;
+      const score = clear + 0.35 * Math.cos(a - outward) - crowd;
       if (score > bestScore) { bestScore = score; best = a; }
     }
     return best;
@@ -201,8 +213,9 @@ export class Overland {
     for (const n of NODES) {
       if (n.type === 'spire') continue;
       const p = wpos(n.id);
-      const dir = this.clearDirection(n.id);
       const dist = { keep: 31, market: 14, shrine: 16, barrow: 17 }[n.type] ?? 7;
+      const radius = { keep: 13, market: 9, shrine: 7, barrow: 10 }[n.type] ?? 3;
+      const dir = this.clearDirection(n.id, dist, radius);
       const c = new THREE.Vector3(p.x + Math.sin(dir) * dist, 0, p.z + Math.cos(dir) * dist);
       const g = new THREE.Group();
       g.position.copy(c);
@@ -325,7 +338,7 @@ export class Overland {
     const mound = new THREE.Mesh(mg, lambert(tex('grassmound')));
     mound.scale.y = 0.48;
     g.add(mound);
-    const stone = lambert(tex('stonewall'));
+    const stone = lambert(tex('barrowwall'), { color: '#cfcfcf' });
     const add = (m, x, y, z) => { m.position.set(x, y, z); g.add(m); return m; };
     add(box(1.1, 3.6, 1.1, stone, 2), -1.7, 1.8, 7.6);
     add(box(1.1, 3.6, 1.1, stone, 2), 1.7, 1.8, 7.6);
@@ -490,7 +503,7 @@ export class Overland {
     this.scene.fog.near = 70 - 40 * t;
     this.scene.fog.far = 260 - 120 * t;
     this.hemi.intensity = 0.9 - 0.45 * t;
-    this.sun.intensity = 1.5 - 1.0 * t;
+    this.sun.intensity = 1.35 - 0.9 * t;
     this.mountains.material.color.set('#9a9ab0').lerp(new THREE.Color('#554466'), t);
     this.stars.material.opacity = 0.5 + 0.5 * t;
   }

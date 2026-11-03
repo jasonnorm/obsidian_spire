@@ -134,8 +134,11 @@ class Pix {
 // Periodic value noise: `cells` lattice cells across the width; height gets
 // cells in proportion, so the noise wraps on both axes.
 function vnoise(t, x, y, cells, seed) {
-  const cx = cells;
-  const cy = Math.max(1, Math.round((cells * t.h) / t.w));
+  return vnoiseA(t, x, y, cells, Math.max(1, Math.round((cells * t.h) / t.w)), seed);
+}
+
+// Same, with separate cell counts across and down (for stretched features).
+function vnoiseA(t, x, y, cx, cy, seed) {
   const u = (x / t.w) * cx; const v = (y / t.h) * cy;
   const x0 = Math.floor(u); const y0 = Math.floor(v);
   const fx = u - x0; const fy = v - y0;
@@ -251,7 +254,7 @@ function heath() {
     const n = fbm(t, x, y, 4, 3, 11);
     let v = 0.3 + n * 0.45 + (vnoise(t, x, y, 16, 12) - 0.5) * 0.25 + (hash(x, y, 13) - 0.5) * 0.14;
     const bare = vnoise(t, x, y, 8, 14);
-    if (bare > 0.72 && hash(x, y, 17) < 0.8) return ramp(0.45 + (hash(x, y, 18) - 0.5) * 0.5, [K, MAROON, BROWN], x, y);
+    if (bare > 0.72 && hash(x, y, 17) < 0.8) return ramp(0.5 + (hash(x, y, 18) - 0.5) * 0.5, [K, BROWN], x, y);
     return ramp(v, [K, DKGRN, GRN], x, y);
   });
   grassTufts(t, 56, 15);
@@ -314,7 +317,7 @@ function volcanic() {
     const s = seeds[id];
     let dx = x + 0.5 - s[0]; let dy = y + 0.5 - s[1];
     if (dx > 32) dx -= 64; if (dx < -32) dx += 64; if (dy > 32) dy -= 64; if (dy < -32) dy += 64;
-    let v = 0.3 + hash(id, 0, 33) * 0.16 - (dx + dy) * 0.008 + (vnoise(t, x, y, 16, 34) - 0.5) * 0.22;
+    let v = 0.26 + hash(id, 0, 33) * 0.16 - (dx + dy) * 0.008 + (vnoise(t, x, y, 16, 34) - 0.5) * 0.22;
     if (edge < 2.2 && !glow) v += dx + dy < 0 ? 0.2 : -0.15;
     if (hash(x, y, 35) < 0.03) v += 0.3;
     return ramp(v, [K, DKGRY, LTGRY], x, y);
@@ -324,18 +327,20 @@ function volcanic() {
 
 function snow() {
   const t = new Pix(64, 64);
-  const hgt = (x, y) => fbm(t, x, y, 4, 3, 41) * 0.7 + vnoise(t, x * 1.0, y, 8, 42) * 0.3;
+  // wind-packed drifts, stretched across the field
+  const hgt = (x, y) => vnoiseA(t, x, y, 2, 6, 41) * 0.6 + vnoiseA(t, x, y, 4, 12, 42) * 0.3 + vnoise(t, x, y, 16, 46) * 0.1;
   t.fill((x, y) => {
     const gx = hgt(x + 1, y) - hgt(x - 1, y);
     const gy = hgt(x, y + 1) - hgt(x, y - 1);
-    const v = 0.84 - (gx + gy) * 4.5 + (hash(x, y, 43) - 0.5) * 0.06;
-    return ramp(v, [BLUE, SKY, LTGRY, WHITE], x, y);
+    const v = 0.86 + (gx * 0.6 + gy) * 3.4 + (hash(x, y, 43) - 0.5) * 0.06;
+    return ramp(v, [SKY, LTGRY, WHITE], x, y);
   });
   const r = rng(45);
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 16; i++) {
     const x = Math.floor(r() * 64); const y = Math.floor(r() * 64);
-    if (i < 5) { t.set(x, y, DKGRY); t.set(x + 1, y, LTGRY); t.set(x, y + 1, SKY); }
-    else { t.set(x, y, SKY); t.set(x + 1, y, WHITE); }
+    if (i < 4) { t.set(x, y, DKGRY); t.set(x + 1, y, LTGRY); t.set(x, y + 1, SKY); }
+    else if (t.get(x, y) !== WHITE) t.set(x, y, WHITE);
+    else { t.set(x, y, SKY); t.set(x + 1, y + 1, LTGRY); }
   }
   return t;
 }
@@ -377,10 +382,12 @@ function desert() {
   t.fill((x, y) => {
     const p = ph(x + 0.5, y + 0.5);
     const f = p - Math.floor(p);
-    let v = 0.5 + (fbm(t, x, y, 8, 2, 62) - 0.5) * 0.18;
-    if (f < 0.1) v = 0.7;
-    else if (f < 0.24) v = 0.3;
-    v += (hash(x, y, 63) - 0.5) * 0.08;
+    const big = fbm(t, x, y, 2, 2, 65);
+    let v = 0.5 + (big - 0.5) * 0.45;
+    if (f < 0.1) v += 0.24;
+    else if (f < 0.22) v -= 0.26;
+    else if (f < 0.32) v -= 0.1;
+    v += (hash(x, y, 63) - 0.5) * 0.06;
     return ramp(v, [BROWN, SAND, YEL], x, y);
   });
   const r = rng(64);
@@ -503,7 +510,7 @@ function barrowwall() {
     const corner = 1 + Math.floor(hash(id, 4, 113) * 2.5);
     const sag = hash(id, 5, 114) < 0.5 && dt === 0 && (lx < 2 || lx > cw - 4);
     if (dr < 0 || db < 0 || Math.min(dl, dr) + Math.min(dt, db) < corner || sag) {
-      return ramp(0.3 + (hash(x, y, 115) - 0.5) * 0.5, [K, MAROON, BROWN], x, y);
+      return ramp(0.36 + (hash(x, y, 115) - 0.5) * 0.5, [K, BROWN], x, y);
     }
     const kind = hash(id, 0, 117);
     let v = 0.48 + hash(id, 1, 118) * 0.14 + (hash(x, y, 119) - 0.5) * 0.12;
@@ -511,7 +518,7 @@ function barrowwall() {
     if (db === 0) v -= 0.28; else if (dr === 0) v -= 0.16;
     if (dt === 0 && hash(id, 3, 120) < 0.3 && hash(x, 0, 121) < 0.75) return hash(x, y, 122) < 0.4 ? GRN : DKGRN;
     if (dt === 1 && hash(id, 3, 120) < 0.3 && hash(x, 1, 123) < 0.4) return DKGRN;
-    return ramp(v, kind < 0.2 ? [K, MAROON, BROWN] : [K, DKGRY, LTGRY], x, y);
+    return ramp(kind < 0.2 ? v - 0.08 : v, [K, DKGRY, LTGRY], x, y);
   });
   // roots worming down through the wall
   for (let i = 0; i < 4; i++) {
@@ -547,8 +554,8 @@ function barrowfloor() {
     const { id, edge } = cheb(x + 0.5, y + 0.5);
     const earth = hash(id, 0, 133) < 0.18;
     if (earth || edge < 1.6) {
-      const v = 0.5 + (fbm(t, x, y, 8, 2, 134) - 0.5) * 0.4 + (hash(x, y, 135) - 0.5) * 0.3 - (edge < 1.6 && !earth ? 0.12 : 0);
-      return ramp(v, [K, MAROON, BROWN], x, y);
+      const v = 0.42 + (fbm(t, x, y, 8, 2, 134) - 0.5) * 0.4 + (hash(x, y, 135) - 0.5) * 0.3 - (edge < 1.6 && !earth ? 0.14 : 0);
+      return ramp(v, [K, BROWN, SAND], x, y);
     }
     const s = seeds[id];
     let dx = x + 0.5 - s[0]; let dy = y + 0.5 - s[1];
@@ -577,8 +584,8 @@ function barrowceil() {
   const t = new Pix(64, 64);
   t.fill((x, y) => {
     const n = fbm(t, x, y, 4, 3, 141);
-    const v = 0.36 + (n - 0.5) * 0.5 + (hash(x, y, 142) - 0.5) * 0.2;
-    return ramp(v, [K, MAROON, BROWN], x, y);
+    const v = 0.44 + (n - 0.5) * 0.5 + (hash(x, y, 142) - 0.5) * 0.2;
+    return ramp(v, [K, BROWN], x, y);
   });
   const r = rng(143);
   for (let i = 0; i < 7; i++) {
@@ -620,21 +627,24 @@ function obsidian() {
     const { b, lx, ly } = info(x, y);
     if (lx === 0 || ly === 0) return K;
     const r = (k) => hash(b, k, 151);
-    if (ly === 1 && lx < 30) return lx < 3 + r(9) * 6 ? VIOLET : NAVY;
-    if (lx === 1) return ly < 4 ? NAVY : (ly & 1 ? NAVY : K);
+    if (ly === 1 && lx < 31) return lx < 3 + r(9) * 8 ? VIOLET : BLUE;
+    if (lx === 1) return ly < 5 ? BLUE : NAVY;
     if (lx === 31 || ly === 15) return K;
+    // glass darkens away from the light, with a broad reflection band
+    let v = 0.44 - (lx / 31) * 0.18 - (ly / 15) * 0.14;
+    const band = lx * 0.45 + ly - (4 + r(7) * 14);
+    if (Math.abs(band) < 2.5) v += 0.2;
     // conchoidal ripples round a fracture point
     const fx = 3 + r(1) * 26; const fy = 3 + r(2) * 10;
     const d = Math.hypot(lx - fx, (ly - fy) * 1.7);
-    const ring = Math.sin(d * 1.1 + r(3) * 6);
-    let v = 0.12 + (vnoise(t, x, y, 8, 152) - 0.5) * 0.12;
-    if (ring > 0.8 && d < 12) v += 0.24;
+    if (Math.sin(d * 1.1 + r(3) * 6) > 0.8 && d < 11) v += 0.14;
+    v += (vnoise(t, x, y, 8, 152) - 0.5) * 0.08;
     // one sharp specular streak per block
     const sx0 = 3 + r(4) * 16; const sy0 = 6 + r(5) * 7; const len = 6 + r(6) * 9;
     const k = lx - sx0;
-    if (k >= 0 && k <= len && Math.abs((ly - sy0) + k * 0.5) < 0.5) {
+    if (r(8) < 0.75 && k >= 0 && k <= len && Math.abs((ly - sy0) + k * 0.5) < 0.5) {
       if (Math.abs(k - len * 0.3) < 0.8) return WHITE;
-      return k > len * 0.75 ? VIOLET : BLUE;
+      return k > len * 0.75 ? VIOLET : SKY;
     }
     return ramp(v, [K, NAVY, BLUE], x, y);
   });
@@ -680,23 +690,26 @@ function spirewall() {
 function spirefloor() {
   const t = new Pix(64, 64);
   t.fill((x, y) => {
-    const lx = mod(x, 32); const ly = mod(y, 32);
-    const q = (Math.floor(mod(x, 64) / 32) + Math.floor(mod(y, 64) / 32)) & 1;
     const gx = mod(x, 64); const gy = mod(y, 64);
-    // gold inlay along the tile's border lines
+    const lx = gx % 32; const ly = gy % 32;
+    const q = (Math.floor(gx / 32) + Math.floor(gy / 32)) & 1;
+    // gold inlay on the tile border, lit on its upper-left side
     if (gx === 0 || gy === 0) return gx === 0 && gy === 0 ? WHITE : YEL;
-    if (gx === 1 || gy === 1) return BROWN;
     if (gx === 63 || gy === 63) return SAND;
+    if (gx === 1 || gy === 1) return BROWN;
     if (lx === 0 || ly === 0) return K;
-    const m = fbm(t, x, y, 8, 2, 171);
-    let v = (q ? 0.5 : 0.3) + (m - 0.5) * 0.3 + (hash(x, y, 172) - 0.5) * 0.06;
-    if (lx === 1 || ly === 1 || (lx === 2 && gx !== 2) || (ly === 2 && gy !== 2)) v += 0.2;
-    if (lx === 31 || ly === 31 || lx === 30 || ly === 30) v -= 0.22;
+    // polished flags: black and violet, a soft diagonal sheen, bevelled edges
+    let v = q ? 0.5 : 0.1;
+    const sheen = lx + ly - (q ? 24 : 34);
+    if (Math.abs(sheen) < 5) v += Math.abs(sheen) < 2 ? 0.3 : 0.18;
+    v += (vnoise(t, x, y, 16, 171) - 0.5) * 0.12;
+    if (lx <= 2 || ly <= 2) v = q ? 0.9 : 0.5;
+    if (lx >= 30 || ly >= 30) v = q ? 0.3 : 0.05;
     return ramp(v, q ? [K, NAVY, VIOLET] : [K, NAVY, BLUE], x, y);
   });
-  // small gold lozenges where the inlay meets the flag joints
   for (const [cx, cy] of [[32, 0], [0, 32]]) {
     t.set(cx, cy - 1, YEL); t.set(cx - 1, cy, YEL); t.set(cx + 1, cy, YEL); t.set(cx, cy + 1, YEL); t.set(cx, cy, WHITE);
+    t.set(cx + 1, cy + 1, BROWN);
   }
   return t;
 }
@@ -801,41 +814,61 @@ function door() {
 function thatch() {
   const t = new Pix(64, 64);
   t.fill((x, y) => ((x + y) & 1 ? K : MAROON));
-  for (let row = 8; row >= 0; row--) {
-    for (let x = 0; x < 64; x++) {
-      const len = 7 + Math.floor(hash(x, row & 7, 201) * 4);
-      const tone = hash(x, row & 7, 203);
-      const lean = hash(x >> 2, row & 7, 204) < 0.5 ? 0 : 1;
-      for (let ly = 0; ly < len; ly++) {
-        const y = row * 8 + ly - 2;
-        const xx = x + (ly > 4 ? lean : 0);
-        let v = 0.12 + (ly / len) * 0.62 + (tone - 0.5) * 0.3;
-        if (mod(x, 3) === 0) v -= 0.12;
-        if (ly === len - 1 && tone > 0.75) v = 0.95;
-        t.set(xx, y, ramp(v, [MAROON, BROWN, SAND, YEL], xx, y));
-      }
-    }
+  const r = rng(201);
+  // each course: bundles of straw 2-4 wide, dark where the course above overhangs, sunlit at the tips
+  const courses = [];
+  for (let row = 0; row < 8; row++) {
+    const widths = [];
+    let left = 64;
+    while (left > 0) { let w = 2 + Math.floor(r() * 3); if (left - w < 2) w = left; widths.push(w); left -= w; }
+    courses.push({ widths, off: Math.floor(r() * 64) });
   }
-  for (let y = 4; y < 64; y += 16) for (let x = 0; x < 64; x++) if (mod(x, 16) < 2) t.set(x, y, mod(x, 16) === 0 ? K : MAROON);
+  const strand = (row, x, ly) => {
+    const c = courses[row];
+    let xx = mod(x - c.off, 64); let bi = 0;
+    while (xx >= c.widths[bi]) { xx -= c.widths[bi]; bi++; }
+    const tone = hash(bi, row, 203);
+    const len = 8 + Math.floor(hash(bi, row, 204) * 3);
+    if (ly >= len) return null;
+    let v = 0.06 + Math.pow(ly / len, 1.3) * 0.82 + (tone - 0.5) * 0.2;
+    if (xx === 0) v -= 0.16;
+    if (ly === len - 1 && tone > 0.9) return YEL;
+    return v;
+  };
+  const paint = (row, onlyOverhang) => {
+    for (let x = 0; x < 64; x++) for (let ly = onlyOverhang ? 8 : 0; ly < 11; ly++) {
+      const v = strand(row, x, ly);
+      if (v === null) continue;
+      const y = row * 8 + ly;
+      t.set(x, y, v === YEL ? YEL : ramp(v, [MAROON, BROWN, SAND], x, mod(y, 64)));
+    }
+  };
+  for (let row = 7; row >= 0; row--) paint(row, false);
+  paint(7, true);
+  for (let y = 5; y < 64; y += 16) for (let x = 0; x < 64; x++) if (mod(x, 16) < 2) t.set(x, y, mod(x, 16) === 0 ? K : MAROON);
   return t;
 }
 
 function rooftile() {
   const t = new Pix(64, 64);
-  const lip = (lx) => 2.2 * Math.sqrt(Math.max(0, 1 - ((lx - 3.5) / 4) ** 2));
+  // fish-scale clay tiles: each course's rounded lower edge laps over the course below
+  const bulge = (lx) => 3.2 * Math.sqrt(Math.max(0, 1 - ((lx + 0.5 - 4) / 4) ** 2));
+  const tile = (x, y) => {
+    const r = Math.floor(mod(y, 64) / 8); const ly = mod(y, 64) - r * 8;
+    const pr = mod(r - 1, 8);
+    const lxp = mod(x + (pr & 1) * 4, 8);
+    if (ly < bulge(lxp)) return { lx: lxp, ly: ly + 8, b: bulge(lxp), id: pr * 10 + Math.floor(mod(x + (pr & 1) * 4, 64) / 8) };
+    const lx = mod(x + (r & 1) * 4, 8);
+    return { lx, ly, b: bulge(lx), id: r * 10 + Math.floor(mod(x + (r & 1) * 4, 64) / 8) };
+  };
   t.fill((x, y) => {
-    const r = Math.floor(y / 8); const ly = y % 8;
-    const lxp = mod(x + ((r - 1) & 1) * 4, 8);
-    const offR = (r & 1) * 4; const lx = mod(x + offR, 8);
-    if (ly < lip(lxp)) {
-      if (lxp === 7) return K;
-      if (ly + 1 >= lip(lxp)) return lxp < 2 ? MAROON : K;
-      return lxp < 2 ? SAND : lxp > 5 ? MAROON : RED;
-    }
-    let v = 0.66 - 0.28 * ((lx - 3.5) / 4) + (hash(Math.floor((x + offR) / 8), r, 211) - 0.5) * 0.1;
-    if (ly - lip(lxp) < 1.2) v -= 0.4;
-    if (lx === 7) v = 0.05;
-    if (lx === 0) v += 0.1;
+    const { lx, ly, b, id } = tile(x, y);
+    if (ly >= 8 + b - 1) return K;
+    if (ly < 4 && (lx === 7 || lx === 0) && tile(x - 1, y).id !== id) return K;
+    let v = 0.64 - 0.3 * ((lx + 0.5 - 4) / 4) + (hash(id, 0, 211) - 0.5) * 0.1;
+    if (ly < 2) v -= 0.34;
+    else if (ly < 3) v -= 0.14;
+    if (ly >= 8 + b - 2) v += lx < 4 ? 0.22 : -0.12;
     v += (hash(x, y, 212) - 0.5) * 0.04;
     return ramp(v, [K, MAROON, RED, SAND], x, y);
   });
@@ -847,11 +880,11 @@ function canvasTex() {
   t.fill((x, y) => {
     const s = mod(x, 16);
     const red = s < 8;
-    let v = 0.75 + 0.2 * Math.sin((y * Math.PI * 2) / 32);
-    if ((x & 1) === 0 && y % 4 === 0) v -= 0.3;
-    if (s === 0 || s === 8) v = 0.2;
-    if (s === 1 || s === 9) v -= 0.12;
-    v += (hash(x, y, 221) - 0.5) * 0.04;
+    let v = 0.85;
+    if ((x & 1) === 0 && y % 4 === 0) v = 0.55;
+    if (s === 0 || s === 8) v = 0.15;
+    else if (s === 1 || s === 9) v = 0.55;
+    if (mod(y, 32) === 30 && (x & 1)) v = 0.15;
     return red ? ramp(v, [MAROON, RED], x, y) : ramp(v, [SAND, YEL], x, y);
   });
   return t;
@@ -863,15 +896,17 @@ function marble() {
     const lx = x % 32; const ly = y % 32;
     if (lx === 31 || ly === 31) return DKGRY;
     const b = Math.floor(x / 32) + Math.floor(y / 32) * 2;
-    const flip = b % 2 ? -1 : 1;
-    const warp = fbm(t, x, y, 4, 3, 231 + b) * 6;
-    const m = Math.sin((((lx * flip) + ly * (1 + (b % 3) * 0.5)) * Math.PI) / 24 + warp);
+    const flip = b % 2 ? -1 : 1; const k = 0.6 + (b % 3) * 0.45;
+    const ph = (dx, dy) => (((lx + dx) * flip + (ly + dy) * k) * Math.PI) / 20 + fbm(t, x + dx, y + dy, 4, 3, 231 + b) * 5;
+    const p0 = ph(0, 0);
+    const g = Math.hypot(ph(1, 0) - ph(-1, 0), ph(0, 1) - ph(0, -1)) / 2;
+    const dist = Math.abs(Math.sin(p0)) / Math.max(0.05, g);
     const cloud = fbm(t, x, y, 8, 2, 236);
-    let v = 0.86 + (cloud - 0.5) * 0.4 + (hash(x, y, 237) - 0.5) * 0.04;
-    if (Math.abs(m) < 0.07) v = 0.3;
-    else if (Math.abs(m) < 0.18) v = Math.min(v, 0.68);
+    let v = 0.9 + (cloud - 0.5) * 0.5;
+    if (dist < 0.6) v = 0.28;
+    else if (dist < 1.7) v = Math.min(v, 0.62);
     if (lx === 0 || ly === 0) v = 1;
-    if (lx === 30 || ly === 30) v = 0.5;
+    if (lx === 30 || ly === 30) v = Math.min(v, 0.62);
     return ramp(v, [DKGRY, LTGRY, WHITE], x, y);
   });
   return t;
@@ -879,15 +914,15 @@ function marble() {
 
 function grassmound() {
   const t = new Pix(64, 64);
-  const hgt = (x, y) => fbm(t, x, y, 8, 2, 241);
+  const hgt = (x, y) => fbm(t, x, y, 8, 2, 241) * 0.6 + vnoise(t, x, y, 16, 248) * 0.25 + vnoise(t, x, y, 4, 247) * 0.15;
   t.fill((x, y) => {
     const gx = hgt(x + 1, y) - hgt(x - 1, y);
     const gy = hgt(x, y + 1) - hgt(x, y - 1);
-    const v = 0.46 - (gx + gy) * 4 + (hash(x, y, 242) - 0.5) * 0.2;
-    if (vnoise(t, x, y, 8, 243) > 0.8 && hash(x, y, 246) < 0.7) return ramp(v - 0.15, [K, MAROON, BROWN], x, y);
+    const v = 0.42 + (gx + gy) * 1.9 + (hash(x, y, 242) - 0.5) * 0.14;
+    if (vnoise(t, x, y, 8, 243) > 0.8 && hash(x, y, 246) < 0.7) return ramp(v - 0.05, [K, BROWN], x, y);
     return ramp(v, [K, DKGRN, GRN], x, y);
   });
-  grassTufts(t, 44, 244, { tip: GRN, base: DKGRN, shadow: K, tall: 2 });
+  grassTufts(t, 60, 244, { tip: GRN, base: DKGRN, shadow: K, tall: 2 });
   const r = rng(245);
   for (let i = 0; i < 6; i++) {
     const x = Math.floor(r() * 64); const y = Math.floor(r() * 64);
@@ -956,26 +991,26 @@ function water() {
 
 function gold() {
   const t = new Pix(64, 64);
-  t.fill((x, y) => ramp(0.3 + (hash(x, y, 261) - 0.5) * 0.4, [K, MAROON, BROWN], x, y));
+  t.fill((x, y) => ramp(0.5 + (hash(x, y, 261) - 0.5) * 0.4, [K, MAROON, BROWN], x, y));
   const r = rng(262);
   const coins = [];
-  for (let i = 0; i < 150; i++) coins.push([r() * 64, r() * 64, r()]);
+  for (let i = 0; i < 240; i++) coins.push([r() * 64, r() * 64, r()]);
   coins.sort((a, b) => a[1] - b[1]);
   for (const [cx, cy, k] of coins) {
-    const upright = k < 0.12;
-    const rx = upright ? 1.6 : 3.6; const ry = upright ? 3.4 : 2.4;
+    const upright = k < 0.1;
+    const rx = upright ? 1.6 : 3.5; const ry = upright ? 3.3 : 2.3;
     for (let y = Math.floor(cy - ry - 1); y <= cy + ry + 1; y++) for (let x = Math.floor(cx - rx - 1); x <= cx + rx + 1; x++) {
       const dx = (x + 0.5 - cx) / rx; const dy = (y + 0.5 - cy) / ry;
       const d = dx * dx + dy * dy;
       if (d > 1) continue;
       let c;
-      if (d > 0.55) c = dy > 0.3 || dx > 0.6 ? BROWN : dx + dy < -0.5 ? YEL : SAND;
-      else if (d > 0.3) c = dx + dy < 0 ? SAND : YEL;
+      if (d > 0.6) c = dy > 0.35 ? BROWN : dx + dy < -0.4 ? YEL : SAND;
+      else if (d > 0.3) c = dx + dy < 0 ? YEL : SAND;
       else c = YEL;
       t.set(x, y, c);
     }
-    t.set(cx + rx * 0.2, cy + ry + 0.2, MAROON);
-    if (k > 0.82) { t.set(cx - 1, cy - 1, WHITE); t.set(cx - 2, cy - 1, YEL); }
+    t.set(cx, cy + ry + 0.3, MAROON);
+    if (k > 0.85) { t.set(cx - 1, cy - 1, WHITE); }
   }
   for (let i = 0; i < 4; i++) {
     const x = Math.floor(r() * 64); const y = Math.floor(r() * 64);
