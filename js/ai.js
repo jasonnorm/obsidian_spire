@@ -7,16 +7,17 @@ import { NODES, NODE_BY_ID, DIST, shortestPath, SHARDS, RELIC_BY_ID } from './da
 const SHARD_IDS = SHARDS.map((s) => s.id);
 
 // How each foe bends the battle maths: `hit` scales the damage the company
-// deals, `loss` is the average loss per lost exchange, `heal` is strength
-// regained per lost exchange.
+// deals, `extra` is the average loss on top of the foe's strength-scaled
+// bite per lost exchange, `heal` is strength regained per lost exchange.
 const FOE_FACTORS = {
-  sentinels: { loss: 1.25 }, ashwarden: { loss: 1.25 }, barrowking: { loss: 1.25 }, hounds: { loss: 1.25 },
-  ogre: { loss: 1.25 }, spiders: { loss: 1.35 }, dragon: { loss: 2.2 },
+  sentinels: { extra: 0.25 }, ashwarden: { extra: 0.25 }, barrowking: { extra: 0.25 }, hounds: { extra: 0.25 },
+  ogre: { extra: 0.25 }, spiders: { extra: 0.35 }, dragon: { extra: 1.2 },
   scorpions: { hit: 0.6 }, troll: { heal: 1 },
 };
-export function foeFactor(kind) { return { hit: 1, loss: 1.12, heal: 0, ...(FOE_FACTORS[kind] || {}) }; }
+export function foeFactor(kind) { return { hit: 1, extra: 0, heal: 0, ...(FOE_FACTORS[kind] || {}) }; }
 
-// Deterministic attrition estimate using the engine's battle maths.
+// Deterministic attrition estimate using the engine's battle maths: the foe
+// bites about one man per six points of its remaining strength.
 export function expectedLoss(company, foe, blade, kind) {
   const fx = foeFactor(kind);
   let c = company;
@@ -25,11 +26,13 @@ export function expectedLoss(company, foe, blade, kind) {
   while (f > 0 && c > 0 && guard++ < 500) {
     const ce = c * (blade ? 1.33 : 1);
     const p = ce / (ce + f);
+    const bite = Math.max(1, f / 6) + fx.extra;
     f -= p * Math.max(1, 0.275 * ce * fx.hit);
     f += (1 - p) * fx.heal;
-    c -= (1 - p) * fx.loss;
+    c -= (1 - p) * bite;
   }
-  return c <= 0 ? Infinity : company - c;
+  // A margin for bad luck: the engine's rolls swing far more than this mean.
+  return c <= 0 ? Infinity : (company - c) * 1.15;
 }
 
 function barrowStrength(game, nodeId, depth) {
@@ -267,9 +270,10 @@ export function decide(game, p, prompt) {
     }
     case 'ascend': {
       if (prompt.tier === 3) return 'yes';
+      if (prompt.tier === 0) return p.company >= spireNeed(game, p) || g >= game.s.gloomMax - 1 ? 'yes' : 'no';
       const kind = ['sentinels', 'ashwarden', 'dragon'][prompt.tier];
       const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade, kind);
-      return l !== Infinity && p.company - l >= 6 ? 'yes' : 'no';
+      return l !== Infinity && p.company - l >= 3 ? 'yes' : 'no';
     }
     case 'kindleRetry': return p.company >= 3 ? 'yes' : 'no';
     default:

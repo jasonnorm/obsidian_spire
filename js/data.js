@@ -160,7 +160,7 @@ export const CHAPTERS = [
   {
     id: 1,
     title: 'The Kindling Road',
-    gloomStart: 0, gloomMax: 24, pulseEvery: 2, foeBonus: 0, kindleBase: 4, rivalSkill: 0.55,
+    gloomStart: 0, gloomMax: 24, pulseEvery: 2, foeBonus: 0, kindleBase: 5, rivalSkill: 0.7,
     intro: [
       'For a hundred winters the Obsidian Spire slept at the heart of the Gloaming Reach.',
       'Now it pulses. Each pulse spreads the Gloom a little further across the six provinces.',
@@ -171,7 +171,7 @@ export const CHAPTERS = [
   {
     id: 2,
     title: 'Ashfall',
-    gloomStart: 2, gloomMax: 23, pulseEvery: 2, foeBonus: 1, kindleBase: 5, rivalSkill: 0.75,
+    gloomStart: 2, gloomMax: 26, pulseEvery: 2, foeBonus: 1, kindleBase: 6, rivalSkill: 0.85,
     intro: [
       'The kindled crown held for a season. Then the ash began to fall again.',
       'The barrows have been resealed and the shards scattered anew. The dead in them are hungrier.',
@@ -181,7 +181,7 @@ export const CHAPTERS = [
   {
     id: 3,
     title: 'The Long Night',
-    gloomStart: 4, gloomMax: 22, pulseEvery: 2, foeBonus: 2, kindleBase: 6, rivalSkill: 0.95,
+    gloomStart: 2, gloomMax: 26, pulseEvery: 2, foeBonus: 2, kindleBase: 7, rivalSkill: 0.95,
     intro: [
       'The sun has not fully risen in forty days. The Spire pulses every night now.',
       'This is the last kindling the Reach can survive. Fail, and the Gloom will cover all six provinces.',

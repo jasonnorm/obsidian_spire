@@ -44,9 +44,9 @@ On your turn, click a glowing space to travel (two roads with a Swift Steed) or 
 | Shrine | Pray for pilgrims, pay the oracle to reveal a barrow's shard, buy a ward. |
 | Barrow | Fight wights in the antechamber to read the sigil, then a Barrow King in the tomb for the shard. |
 | Wilds | A random event: brigands, wolves, wraiths, fog, storms, fever, caches, sellswords, pilgrims, peddlers, omens, Gloom surges, or the province's own beast (Bog Trolls that heal, venomous Giant Spiders, coin-stealing Cinder Imps, hard-hitting Frost Ogres, armoured Dune Scorpions). |
-| The Spire | With all three shards: beat the Sentinels, then the Ash Warden, then the fire-breathing Crown Dragon, then repeat the crown's note sequence on the sockets. Beaten guardians stay beaten. |
+| The Spire | With all three shards: beat the Sentinels, then the Ash Warden, then the fire-breathing Crown Dragon, then repeat the crown's note sequence on the sockets. The climb is one push: turn back before the dragon falls and every guardian rises again. A wrong note costs three of the company and the crown sings a new sequence. |
 
-Battles are fought one exchange at a time. Each Fight press is a roll weighted by your company against the foe's strength, and you can Flee whenever you like. If your company is wiped out you're routed: home with five survivors and half your purse, and the Gloom goes up a notch.
+Battles are fought one exchange at a time. Each Fight press is a roll weighted by your company against the foe's strength. A lost exchange costs about one man per six points of the foe's remaining strength (more for fierce, venomous and fire-breathing foes), so big fights need big companies. You can Flee whenever you like, and a battle's result stays up until you press Next or Enter. If your company is wiped out you're routed: home with five survivors and half your purse, and the Gloom goes up a notch.
 
 Keyboard: `Y` yes, `N` no, `X` next, `F` fight, `L` flee, `S` stay, `I` ledger, `R` repeat, `E` end, `1`/`2`/`3` crown sockets, `Space` hurries a message along.
 
@@ -56,9 +56,9 @@ Three chapters, each unlocked by clearing the one before. Progress and a mid-gam
 
 | Chapter | Gloom start / limit | Foe bonus | Crown song | Rival skill |
 | --- | --- | --- | --- | --- |
-| I. The Kindling Road | 0 / 24 | +0 | 4 notes and up | 0.55 |
-| II. Ashfall | 2 / 23 | +1 | 5 notes and up | 0.75 |
-| III. The Long Night | 4 / 22 | +2 | 6 notes and up | 0.95 |
+| I. The Kindling Road | 0 / 24 | +0 | 5 notes and up | 0.7 |
+| II. Ashfall | 2 / 26 | +1 | 6 notes and up | 0.85 |
+| III. The Long Night | 2 / 26 | +2 | 7 notes and up | 0.95 |
 
 ## Source layout
 
@@ -84,6 +84,7 @@ js/fp/sprites-*.js  pixel art: foes, province beasts, people, props
 js/fp/textures.js   procedural pixel textures and the mountain backdrop
 vendor/             three.js r160 module build and OrbitControls (MIT)
 tools/sim.mjs       headless balance simulation, the computer playing both seats
+tools/sim-detail.mjs  the same, with where games are won and lost (climbs, army size, Gloom)
 tools/build.mjs     esbuild bundle into dist/
 tools/*-preview.html  contact sheets for the glyphs, 3D models and pixel art
 ```

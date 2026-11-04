@@ -197,7 +197,10 @@ export class SpireConsole {
     });
   }
 
-  skip() { this.skipper?.(); }
+  skip() {
+    if (this.pending?.hold) { this.press('next'); return; }
+    this.skipper?.();
+  }
 
   // ---------- events ----------
   async display(evt, { rival = false } = {}) {
@@ -206,10 +209,21 @@ export class SpireConsole {
     if (evt.sound) audio.play(evt.sound);
     if (evt.pulse) this.spire3d?.pulse?.();
     if (evt.flare) this.spire3d?.flare?.();
+    // A battle's outcome stays up until the player presses NEXT (or Enter or
+    // Space), so it can be read before play moves on.
+    if (evt.hold && !rival) {
+      await new Promise((resolve) => {
+        this.pending = { resolve, prompt: evt, keys: new Set(['next']), hold: true };
+        this.enable(['next', ...UTILITY]);
+      });
+      return;
+    }
     const len = (evt.text || '').length;
     let ms = (evt.short ? 650 : 1250) + len * (evt.short ? 12 : 22);
-    if (evt.battleTick) ms = 520;
-    if (rival) ms *= 0.75; // the rival's turn plays at 80% of the old pace
+    if (evt.battleTick) ms = rival ? 750 : 650;
+    else if (rival && !evt.hold) ms *= 0.75; // the rival's turn plays at 80% of the old pace
+    // The rival's battle outcomes linger long enough to read.
+    if (evt.hold) ms = Math.max(ms, 2600 + len * 18);
     ms *= this.speed;
     await this.wait(ms);
   }
@@ -379,6 +393,7 @@ export class SpireConsole {
     const k = e.key.toLowerCase();
     if (this.socketMode && ['1', '2', '3'].includes(k)) { this.socketMode(['sun', 'moon', 'star'][+k - 1]); return true; }
     if (k === ' ' || k === 'enter') {
+      if (this.pending?.hold) { this.press('next'); return true; }
       if (this.skipper) { this.skip(); return true; }
     }
     const map = { y: 'yes', n: 'no', x: 'next', arrowright: 'next', f: 'fight', l: 'flee', s: 'stay', i: 'ledger', r: 'repeat', e: 'end' };

@@ -59,7 +59,10 @@ function makeIO(myGen) {
       const rival = !!p && p.id === 'r';
       const shown = rival && (!evt.mood || evt.mood === 'idle') ? { ...evt, mood: 'rival' } : evt;
       if (view === 'fp') fpv?.stage(evt, p);
+      const held = evt.hold && !rival;
+      if (held) setHint('Press NEXT (or Enter / Space) to go on.');
       await con.display(shown, { rival });
+      if (held) setHint('');
       if (!alive()) return frozen();
     },
     async ask(p, prompt) {
@@ -76,9 +79,11 @@ function makeIO(myGen) {
       if (prompt.kind === 'move' || !key || typeof key !== 'string') return;
       con.render({ ...prompt, mood: prompt.battle ? 'danger' : 'rival' });
       const browsing = key === 'next' || key === 'end';
-      await wait((browsing ? 200 : 525) * con.speed);
+      // In battle the prompt also carries the last exchange, so give it time.
+      const think = prompt.battle ? 900 : browsing ? 200 : 525;
+      await wait(think * con.speed);
       con.flashKey?.(key);
-      await wait((browsing ? 115 : 325) * con.speed);
+      await wait((browsing ? 115 : prompt.battle ? 400 : 325) * con.speed);
       if (!alive()) return frozen();
     },
     chooseMove(p, options) {
