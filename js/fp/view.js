@@ -26,6 +26,7 @@ const FOE_STAGE = {
   ogre: { set: 'beasts', art: 'ogre', n: 1 },
   scorpions: { set: 'beasts', art: 'scorpion', n: 2 },
   brigands: { art: 'brigand', n: 3 },
+  marchers: { set: 'people', art: 'sellsword', n: 3 },
   wolves: { art: 'wolf', n: 2 },
   hounds: { art: 'hound', n: 2 },
   wights: { art: 'wight', n: 3 },
@@ -371,6 +372,7 @@ export class FirstPersonView {
   regionOf(id) {
     const n = NODE_BY_ID[id];
     if (n.type === 'spire') return 'The Ashlands';
+    if (n.type === 'border') return `The border of ${PROVINCES[n.wedges[0]].name} and ${PROVINCES[n.wedges[1]].name}`;
     return n.slot === 'E' ? `${PROVINCES[n.wedge].name} · edge of the Ashlands` : PROVINCES[n.wedge].name;
   }
 
@@ -384,10 +386,10 @@ export class FirstPersonView {
       this.yaw = yawTo(this.pos, new THREE.Vector3());
       this.pitch = 0.2;
     } else {
-      const p = wpos(id);
+      const p = site?.type === 'border' ? this.overland.borderStand(id, fromId) : wpos(id);
       this.pos.set(p.x, EYE, p.z);
       this.pitch = 0;
-      if (site && site.type !== 'wilds') this.yaw = yawTo(this.pos, site.center);
+      if (site && site.type !== 'wilds' && site.type !== 'road') this.yaw = yawTo(this.pos, site.center);
       else this.yaw = yawTo(this.pos, new THREE.Vector3());
     }
     this.setBanner(NODE_BY_ID[id].name, this.regionOf(id));
@@ -398,7 +400,7 @@ export class FirstPersonView {
     let target;
     let pitch = 0;
     if (this.node === 'S') { target = yawTo(this.pos, new THREE.Vector3()); pitch = 0.2; }
-    else if (site && site.type !== 'wilds') target = yawTo(this.pos, site.center);
+    else if (site && site.type !== 'wilds' && site.type !== 'road') target = yawTo(this.pos, site.center);
     else return;
     await this.turnTo(target, pitch, 450);
   }
@@ -498,7 +500,9 @@ export class FirstPersonView {
     for (let i = 0; i < path.length - 1; i++) {
       const to = path[i + 1];
       const from = path[i];
-      const b = to === 'S' ? this.overland.spireStand(from) : wpos(to);
+      // A ride that ends at a border stops short of its gatehouse.
+      const b = to === 'S' ? this.overland.spireStand(from)
+        : NODE_BY_ID[to].type === 'border' && i === path.length - 2 ? this.overland.borderStand(to, from) : wpos(to);
       const a = this.pos.clone();
       const dest3 = new THREE.Vector3(b.x, EYE, b.z);
       await this.turnTo(yawTo(a, dest3), 0, 260 * this.speed);
@@ -649,7 +653,7 @@ export class FirstPersonView {
       const key = `foe:${evt.foe}`;
       if (this.stageKey !== key) {
         if (evt.foe === 'dragon') this.dropLurker();
-        this.spawn(foe.set === 'beasts' ? BEASTS_ART : FOES_ART, foe.art, foe.n, { key, height: foe.height });
+        this.spawn(foe.set === 'beasts' ? BEASTS_ART : foe.set === 'people' ? PEOPLE_ART : FOES_ART, foe.art, foe.n, { key, height: foe.height });
       }
       if (evt.breath) {
         const a = this.actors[0];

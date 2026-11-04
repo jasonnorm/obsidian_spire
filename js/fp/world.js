@@ -224,6 +224,7 @@ export class Overland {
   buildSites() {
     for (const n of NODES) {
       if (n.type === 'spire') continue;
+      if (n.type === 'border') { this.buildBorderGate(n); continue; }
       const p = wpos(n.id);
       const dist = { keep: 31, market: 14, shrine: 16, barrow: 17 }[n.type] ?? 7;
       const radius = { keep: 13, market: 9, shrine: 7, barrow: 10 }[n.type] ?? 3;
@@ -243,6 +244,49 @@ export class Overland {
       focus.y = n.type === 'keep' ? 5 : n.type === 'barrow' ? 2.2 : n.type === 'wilds' ? 1.4 : 2.2;
       this.sites[n.id] = { group: g, center: c, dir, focus, npc, type: n.type };
     }
+  }
+
+  // A gatehouse straddling the road where it crosses from one province into
+  // the next: two towers, a crenellated arch, and each province's banner on
+  // its own side.
+  buildBorderGate(n) {
+    const p = wpos(n.id);
+    const [a, b] = n.ends.map((id) => (id === 'S' ? new THREE.Vector3() : wpos(id)));
+    const dir = Math.atan2(b.x - a.x, b.z - a.z);
+    const g = new THREE.Group();
+    g.position.copy(p);
+    g.rotation.y = dir; // local +z runs along the road toward ends[1]
+    const wall = this.mat('stonewall');
+    const roof = this.mat('rooftile');
+    const add = (m, x, y, z) => { m.position.set(x, y, z); g.add(m); return m; };
+    for (const side of [-1, 1]) {
+      add(this.box(3.4, 9, 3.4, wall), side * 5.3, 4.5, 0);
+      const cap = add(new THREE.Mesh(new THREE.ConeGeometry(2.8, 3.2, 4), roof), side * 5.3, 10.6, 0);
+      cap.rotation.y = Math.PI / 4;
+      // Each tower flies the banner of the province on its side of the line.
+      const accent = PROVINCES[side < 0 ? n.wedges[0] : n.wedges[1]].accent;
+      const banner = this.mat('canvas', { color: accent, side: THREE.DoubleSide });
+      for (const face of [-1, 1]) {
+        const bn = add(new THREE.Mesh(new THREE.PlaneGeometry(1.7, 3.4), banner), side * 5.3, 5.6, face * 1.75);
+        bn.rotation.y = face < 0 ? Math.PI : 0;
+      }
+    }
+    add(this.box(7.2, 1.8, 2.6, wall), 0, 7.7, 0);
+    for (let i = -3; i <= 3; i += 2) add(this.box(0.9, 0.9, 2.6, wall), i, 9.05, 0);
+    this.scene.add(g);
+    const focus = p.clone();
+    focus.y = 6;
+    this.sites[n.id] = { group: g, center: p.clone(), dir, focus, npc: null, type: 'border' };
+  }
+
+  // Where to stand when stopped at a border: a few paces short of the gate,
+  // on the side the Warden came from, looking through it.
+  borderStand(id, fromId) {
+    const n = NODE_BY_ID[id];
+    const p = wpos(id);
+    const near = n.ends.includes(fromId) ? fromId : n.ends[0];
+    const q = near === 'S' ? new THREE.Vector3() : wpos(near);
+    return p.clone().add(q.sub(p).setLength(8));
   }
 
   makeKeep(g, mine) {
@@ -461,7 +505,7 @@ export class Overland {
       if (Math.hypot(x, z) < SPIRE_R + 8) return false;
       if (nearRoad(x, z)) return false;
       if (NODES.some((n) => Math.hypot(n.x * K - x, n.z * K - z) < 7)) return false;
-      if (sites.some((st) => st.type !== 'wilds' && Math.hypot(st.center.x - x, st.center.z - z) < (st.type === 'keep' ? 17 : 11))) return false;
+      if (sites.some((st) => st.type !== 'wilds' && st.type !== 'road' && Math.hypot(st.center.x - x, st.center.z - z) < (st.type === 'keep' ? 17 : 11))) return false;
       if (placed.some(([px, pz]) => Math.hypot(px - x, pz - z) < 3.2)) return false;
       const kind = kinds[Math.floor(rng() * kinds.length)];
       this.prop(kind, x, z, { height: (PROPS_ART[kind]?.height || 1) * (0.8 + rng() * 0.5) });

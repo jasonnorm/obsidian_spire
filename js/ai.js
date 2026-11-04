@@ -98,12 +98,21 @@ function unknownValue(game, p) {
   return Math.min(1, wantedLeft / hidden.length);
 }
 
+// A tie-break that looks the same from either keep: the space's province
+// counted round from the Warden's home, then its slot.
+function rel(p, id) {
+  const n = NODE_BY_ID[id];
+  if (n.wedge < 0) return 999;
+  const h = NODE_BY_ID[p.home].wedge;
+  return ((n.wedge - h + 6) % 6) * 10 + 'ABCDERX'.indexOf(n.slot);
+}
+
 function nearest(p, ids) {
   let best = null;
   let bd = Infinity;
   for (const id of ids) {
     const d = DIST[p.node][id];
-    if (d < bd) { bd = d; best = id; }
+    if (d < bd || (d === bd && rel(p, id) < rel(p, best))) { bd = d; best = id; }
   }
   return { id: best, d: bd };
 }
@@ -128,7 +137,7 @@ function barrowTargets(game, p) {
     if (value <= 0) continue;
     out.push({ id, value, d: DIST[p.node][id], need: barrowNeed(game, p, id) });
   }
-  out.sort((a, b) => b.value / (b.d + 1.5) - a.value / (a.d + 1.5));
+  out.sort((a, b) => (b.value / (b.d + 3) - a.value / (a.d + 3)) || rel(p, a.id) - rel(p, b.id));
   return out;
 }
 
@@ -143,11 +152,11 @@ function chooseGoal(game, p) {
   const up = game.upkeep(p);
   const spots = recruitSpots(p);
   // Food first.
-  if (p.provisions < up * 3) {
+  if (p.provisions < up * 5) {
     const food = nearest(p, spots);
     if (p.coin >= 4 && food.d <= Math.max(1, Math.floor(p.provisions / up) + 1)) return { id: food.id, why: 'food' };
-    if (NODE_BY_ID[p.node].type === 'wilds') return { id: p.node, why: 'forage' };
-    const wild = nearest(p, NODES.filter((n) => n.type === 'wilds').map((n) => n.id));
+    if (['wilds', 'road'].includes(NODE_BY_ID[p.node].type)) return { id: p.node, why: 'forage' };
+    const wild = nearest(p, NODES.filter((n) => n.type === 'wilds' || n.type === 'road').map((n) => n.id));
     return { id: wild.id, why: 'forage' };
   }
   const want = targetCompany(game, p);
@@ -155,21 +164,22 @@ function chooseGoal(game, p) {
     if (p.company >= spireNeed(game, p) || game.s.gloom >= game.s.gloomMax - 2) return { id: 'S', why: 'spire' };
   }
   if (p.company < want - 2) {
-    const tithe = game.titheDue(p) + DIST[p.node][p.home] * 4;
+    const tithe = game.titheDue(p) + (DIST[p.node][p.home] / 2) * game.titheRate;
     const r = nearest(p, spots);
     const homeD = DIST[p.node][p.home];
-    if (p.coin < 12 && tithe >= 12 && homeD <= r.d + 2) return { id: p.home, why: 'tithe' };
+    if (p.coin < 12 && tithe >= 12 && homeD <= r.d + 4) return { id: p.home, why: 'tithe' };
     if (Math.floor(p.coin / 3) >= 2) return { id: r.id, why: 'recruit' };
     if (tithe >= 12) return { id: p.home, why: 'tithe' };
     const shr = nearest(p, shrines());
-    if (game.s.round - p.lastPray >= 3 && shr.d <= 3) return { id: shr.id, why: 'pray' };
+    if (game.s.round - p.lastPray >= game.prayEvery && shr.d <= 6) return { id: shr.id, why: 'pray' };
   }
   // Relic shopping when rich.
   if (p.coin >= 34) {
     const wish = ['steed', 'blade', game.s.gloom >= 5 ? 'lantern' : null, 'banner'].filter(Boolean).filter((r) => !p.relics[r]);
-    for (const [mid, m] of Object.entries(game.s.markets)) {
-      if (DIST[p.node][mid] <= 3 && m.relics.some((r) => wish.includes(r))) return { id: mid, why: 'relic' };
-    }
+    const shops = Object.entries(game.s.markets)
+      .filter(([mid, m]) => DIST[p.node][mid] <= 6 && m.relics.some((r) => wish.includes(r)))
+      .sort((x, y) => (DIST[p.node][x[0]] - DIST[p.node][y[0]]) || rel(p, x[0]) - rel(p, y[0]));
+    if (shops.length) return { id: shops[0][0], why: 'relic' };
   }
   if (game.shardCount(p) < 3) {
     const t = barrowTargets(game, p);
@@ -210,7 +220,7 @@ function relicPriority(game, p, id) {
     case 'lantern': return g >= 5 ? 3 : 1;
     case 'banner': return 2;
     case 'charm': return 1;
-    case 'map': return 1;
+    case 'map': return 2;
     default: return 0;
   }
 }
@@ -221,7 +231,7 @@ function shopDecision(game, p, prompt) {
   const item = prompt.item;
   const price = prompt.price;
   const up = game.upkeep(p);
-  const provWant = Math.min(40, up * 9);
+  const provWant = Math.min(60, up * 15);
   const provBudget = Math.max(0, Math.ceil((provWant - p.provisions) / 5)) * (item.kind === 'provisions' ? price : 4);
   let buy = false;
   if (item.kind === 'provisions') buy = p.provisions < provWant && p.coin >= price;
@@ -276,6 +286,15 @@ export function decide(game, p, prompt) {
       return l !== Infinity && p.company - l >= 3 ? 'yes' : 'no';
     }
     case 'kindleRetry': return p.company >= 3 ? 'yes' : 'no';
+    case 'border': {
+      // The map makes the wild way free; otherwise pay when the purse allows,
+      // fight a weak garrison for its toll chest, and go round when broke.
+      if (p.relics.map) return 'no';
+      if (prompt.canPay && p.coin >= prompt.toll + 4) return 'yes';
+      const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade, 'marchers');
+      if (l !== Infinity && l <= 2 && p.company - l >= 6) return 'fight';
+      return prompt.canPay && p.company < 8 ? 'yes' : 'no';
+    }
     default:
       return prompt.options.includes('yes') ? 'yes' : prompt.options[0];
   }

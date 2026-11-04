@@ -345,7 +345,7 @@ vec3 splatNormal() { vec2 p = vWXZ; return ${sum('sNrm', '.xyz')}; }`)
     const sites = Object.values(this.sites);
     const nodeNear = (x, z, d) => NODES.some((n) => Math.hypot(n.x * K - x, n.z * K - z) < d);
     const roadNear = (x, z, d) => SEGS.some(([a, b]) => segDist(x, z, a, b) < d);
-    const siteNear = (x, z, pad) => sites.some((st) => st.type !== 'wilds' && Math.hypot(st.center.x - x, st.center.z - z) < (st.type === 'keep' ? 18 : 12) + pad);
+    const siteNear = (x, z, pad) => sites.some((st) => st.type !== 'wilds' && st.type !== 'road' && Math.hypot(st.center.x - x, st.center.z - z) < (st.type === 'keep' ? 18 : 12) + pad);
     const buckets = {};
     const add = (kind, x, z, s, shadow) => {
       (buckets[kind] ||= { list: [], shadow }).list.push([x, this.heightAt(x, z), z, rng() * Math.PI * 2, s]);

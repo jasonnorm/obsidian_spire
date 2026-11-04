@@ -6,7 +6,7 @@ import { SpireConsole } from './console.js';
 import { Ledger, GloomTrack } from './ledger.js';
 import * as audio from './audio.js';
 import { Game, newState } from './engine.js';
-import { CHAPTERS, NODE_BY_ID, RELIC_BY_ID, SHARDS } from './data.js';
+import { CHAPTERS, NODE_BY_ID, RELIC_BY_ID, SHARDS, PROVINCES } from './data.js';
 import { FirstPersonView } from './fp/view.js';
 
 const $ = (s) => document.querySelector(s);
@@ -68,7 +68,8 @@ function makeIO(myGen) {
     async ask(p, prompt) {
       if (!alive()) return frozen();
       setHint(promptHint(prompt));
-      if (view === 'fp' && prompt.battle) fpv?.stage(prompt, p);
+      // The garrison at a border crossing steps out while you decide.
+      if (view === 'fp' && (prompt.battle || prompt.kind === 'border')) fpv?.stage(prompt, p);
       const k = await con.ask(prompt);
       setHint('');
       if (!alive()) return frozen();
@@ -208,6 +209,8 @@ const TYPE_TEXT = {
   shrine: 'Shrine: pray, consult the oracle, take a ward',
   barrow: 'Barrow: wights in the antechamber, a Barrow King in the tomb',
   wilds: 'Wilds: anything may happen on the road',
+  road: 'On the road: usually quiet, sometimes not',
+  border: 'Border crossing: pay the marchers, fight them, or take the wild way round',
   spire: 'The Obsidian Spire: bring all three shards',
 };
 
@@ -225,6 +228,13 @@ function describeNode(id) {
     extra = b.revealed ? `Its tomb holds the ${sh.name}.` : 'Which shard it holds is unknown.';
     if (me.looted[id]) extra += ' You have taken all it holds for you.';
     else if (me.depth?.[id]) extra += ' You cleared its antechamber.';
+  }
+  if (n.type === 'border') {
+    const names = n.wedges.map((w) => PROVINCES[w].name).join(' and ');
+    const info = game.borderInfo({ ...me, prevNode: n.ends[0] }, n);
+    extra = info.own
+      ? `Between ${names}. Your own marchers hold it: free passage.`
+      : `Between ${names}.${info.rivals ? " Ser Vael's marchers hold it." : ''} Toll about ${info.toll} coin; the garrison is ${info.str}–${info.str + 3} strong.`;
   }
   return `${n.name}. ${n.type === 'keep' ? '' : `${TYPE_TEXT[n.type]}. `}${extra}`.trim();
 }

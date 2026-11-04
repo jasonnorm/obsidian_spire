@@ -13,7 +13,7 @@
 
 import {
   NODES, NODE_BY_ID, ADJ, DIST, shortestPath, SHARDS, RELICS, RELIC_BY_ID, FOES, PROVINCES,
-  START, LIMITS, CHAPTERS,
+  START, LIMITS, CHAPTERS, PACE,
 } from './data.js';
 import * as AI from './ai.js';
 
@@ -126,9 +126,11 @@ export class Game {
     return 15 + Math.floor(g * 0.45) + fb * 2;
   }
 
-  // The home keep gathers 4 coin of tithes every round, up to 32, while its Warden is away.
-  titheDue(p) { return Math.min(32, 4 * (this.s.round - p.lastTithe)); }
-  upkeep(p) { return Math.max(1, Math.ceil(p.company / 12)); }
+  // The home keep gathers tithes every round while its Warden is away, up to a cap.
+  get titheRate() { return PACE.titheRate; }
+  get prayEvery() { return PACE.prayEvery; }
+  titheDue(p) { return Math.min(PACE.titheCap, PACE.titheRate * (this.s.round - p.lastTithe)); }
+  upkeep(p) { return Math.max(1, Math.ceil(p.company / PACE.upkeepPer)); }
   priceMult() { const g = this.s.gloom; return 1 + (g >= 7 ? 0.25 : 0) + (g >= 14 ? 0.25 : 0); }
   shardCount(p) { return SHARD_IDS.filter((s) => p.shards[s]).length; }
   isHuman(p) { return p.human && !this.allAI; }
@@ -204,17 +206,32 @@ export class Game {
     } else {
       const opt = options.find((o) => o.to === choice.to);
       const path = opt ? opt.path : shortestPath(p.node, choice.to);
-      p.prevNode = p.node;
-      await this.io.movePawn?.(p, path);
-      p.node = choice.to;
-      p.stats.roads += path.length - 1;
-      this.changed();
-      await this.arrive(p);
+      // A border on the way stops the ride there until it has been crossed.
+      const stop = path.findIndex((id, i) => i > 0 && i < path.length - 1 && NODE_BY_ID[id].type === 'border');
+      const leg = stop > 0 ? path.slice(0, stop + 1) : path;
+      await this.ride(p, leg);
+      if (stop > 0) {
+        const res = await this.borderFlow(p, this.node(p));
+        if (res === 'across' && !this.s.over && p.company > 0) {
+          await this.ride(p, path.slice(stop));
+          await this.arrive(p);
+        }
+      } else {
+        await this.arrive(p);
+      }
     }
     if (this.s.over) return;
     if (p.company <= 0) { await this.rout(p); return; }
     await this.doUpkeep(p);
     if (p.company <= 0) await this.rout(p);
+  }
+
+  async ride(p, path) {
+    p.prevNode = path[path.length - 2] ?? p.node;
+    await this.io.movePawn?.(p, path);
+    p.node = path[path.length - 1];
+    p.stats.roads += path.length - 1;
+    this.changed();
   }
 
   async doUpkeep(p) {
@@ -292,13 +309,19 @@ export class Game {
       case 'shrine': return this.shrineFlow(p, n);
       case 'barrow': return this.barrowFlow(p, n);
       case 'spire': return this.spireFlow(p, n);
+      case 'border': return this.borderFlow(p, n);
+      case 'road': return this.wildsEvent(p, n, false, true);
       default: return this.wildsEvent(p, n, false);
     }
   }
 
   async stayAt(p) {
     const n = this.node(p);
-    if (n.type === 'wilds') {
+    if (n.type === 'border') {
+      await this.show(p, { glyph: 'border', text: `${p.human ? 'You wait' : 'Ser Vael waits'} by ${n.name}.`, sound: 'quiet', mood: 'idle', short: true });
+      return;
+    }
+    if (n.type === 'wilds' || n.type === 'road') {
       const found = this.int(2, 4);
       p.provisions += found;
       this.clamp(p);
@@ -307,7 +330,7 @@ export class Game {
         text: `${p.human ? 'You make' : 'Ser Vael makes'} camp at ${n.name} and forage ${found} provisions.`,
         tone: 'good', sound: 'gain', mood: 'good',
       });
-      if (this.chance(0.35)) await this.wildsEvent(p, n, true);
+      if (this.chance(0.35)) await this.wildsEvent(p, n, true, n.type === 'road');
       return;
     }
     return this.arrive(p);
@@ -390,7 +413,7 @@ export class Game {
 
   async shrineFlow(p, n) {
     await this.show(p, { glyph: 'shrine', text: `${n.name}. Candles burn here even now.`, sound: 'shrine', mood: 'magic', short: true });
-    if (this.s.round - p.lastPray >= 3) {
+    if (this.s.round - p.lastPray >= PACE.prayEvery) {
       const gain = p.company < 8 ? 3 : 2;
       const key = await this.ask(p, { kind: 'pray', glyph: 'pray', led: gain, text: `Pray at the shrine? Pilgrims may join you (+${gain}).`, options: ['yes', 'no'] });
       if (key === 'yes') {
@@ -646,7 +669,7 @@ export class Game {
         // Trolls heal and imps rob, whether or not the banner holds the line.
         let extra = '';
         if (foe.regen && left < strength) { left += 1; extra += ' Its wounds knit.'; }
-        if (foe.thief && p.coin > 0) { const st = Math.min(p.coin, this.int(2, 3)); p.coin -= st; extra += ` The imps snatch ${st} coin.`; }
+        if (foe.thief && p.coin > 0) { const st = Math.min(p.coin, this.int(2, 4)); p.coin -= st; extra += ` The imps snatch ${st} coin.`; }
         if (p.relics.banner && !bannerUsed) {
           bannerUsed = true;
           last = `The line wavers, but the war banner holds it.${extra}`;
@@ -693,13 +716,16 @@ export class Game {
   }
 
   // ---------- the wilds ----------
-  wildsTable(camping, node) {
+  // `road` is a halfway space on a road: mostly quiet, rarely a Gloom surge.
+  wildsTable(camping, node, road = false) {
     const g = this.s.gloom;
     const terrain = node && node.wedge >= 0 ? PROVINCES[node.wedge].terrain : null;
     const HOME = { marsh: 'troll', forest: 'spiders', volcanic: 'imps', snow: 'ogre', desert: 'scorpions' };
-    const beasts = ['troll', 'spiders', 'imps', 'ogre', 'scorpions'].map((b) => [b, HOME[terrain] === b ? 9 : 1.5]);
+    // A Warden's own marchers keep the beasts down in his home province.
+    const patrolled = node && this.s.players.some((q) => NODE_BY_ID[q.home].wedge === node.wedge);
+    const beasts = ['troll', 'spiders', 'imps', 'ogre', 'scorpions'].map((b) => [b, HOME[terrain] === b && !patrolled ? 9 : 1.5]);
     return [
-      ['quiet', camping ? 30 : 20],
+      ['quiet', road ? 48 : camping ? 30 : 20],
       ['brigands', 11],
       ['wolves', 6],
       ...beasts,
@@ -714,12 +740,12 @@ export class Game {
       ['pilgrim', 4],
       ['peddler', 5],
       ['omen', 4],
-      ['gloomsurge', 2 + g / 4],
+      ['gloomsurge', road ? 0.5 : 2 + g / 4],
     ];
   }
 
-  async wildsEvent(p, n, camping) {
-    const table = this.wildsTable(camping, n);
+  async wildsEvent(p, n, camping, road = false) {
+    const table = this.wildsTable(camping, n, road);
     const total = table.reduce((a, [, w]) => a + w, 0);
     let roll = this.rand() * total;
     let ev = 'quiet';
@@ -763,7 +789,7 @@ export class Game {
         return;
       }
       case 'imps': {
-        const str = 3 + this.int(0, 4) + Math.floor(g / 3) + fb;
+        const str = 4 + this.int(0, 4) + Math.floor(g / 2) + fb;
         await this.battle(p, 'imps', str, { intro: `Cinder imps pour out of a smoking vent at ${n.name}, ${str} of them, grabbing at purses!` });
         return;
       }
@@ -773,7 +799,7 @@ export class Game {
         return;
       }
       case 'scorpions': {
-        const str = 4 + this.int(0, 3) + Math.floor(g / 2) + fb;
+        const str = 3 + this.int(0, 3) + Math.floor(g / 2) + fb;
         await this.battle(p, 'scorpions', str, { intro: `Dune scorpions burst from the sand at ${n.name}, ${str} strong! Their shells turn blades.` });
         return;
       }
@@ -889,6 +915,112 @@ export class Game {
         return;
       default:
     }
+  }
+
+  // ---------- border crossings ----------
+  // Every road from one province into the next has a crossing held by that
+  // march's garrison. A Warden's own marchers let him through; anywhere else
+  // he pays the toll, forces the crossing, or takes the wild way round and
+  // risks the land itself.
+  borderInfo(p, n) {
+    const g = this.s.gloom;
+    const fb = this.chapter.foeBonus;
+    const homeWedge = (q) => NODE_BY_ID[q.home].wedge;
+    const prev = p.prevNode ? NODE_BY_ID[p.prevNode] : null;
+    const into = prev && prev.wedge === n.wedges[0] ? n.wedges[1] : prev && prev.wedge === n.wedges[1] ? n.wedges[0] : n.wedges[1];
+    const own = n.wedges.includes(homeWedge(p));
+    const rivals = n.wedges.includes(homeWedge(this.other(p)));
+    const toll = Math.round((4 + Math.floor(g / 3) + fb) * (rivals ? 1.5 : 1) * this.priceMult());
+    const str = 4 + Math.floor(g / 2) + fb + (rivals ? 3 : 0);
+    return { into, own, rivals, toll, str };
+  }
+
+  async borderFlow(p, n) {
+    const { into, own, rivals, toll } = this.borderInfo(p, n);
+    const dest = PROVINCES[into];
+    const You = p.human ? 'You' : 'Ser Vael';
+    if (own) {
+      await this.show(p, { glyph: 'border', text: `${n.name}. ${p.human ? 'Your' : 'His'} own marchers wave ${p.human ? 'you' : 'him'} through into ${dest.name}.`, tone: 'good', sound: 'home', mood: 'good', short: true });
+      return 'across';
+    }
+    const str = this.borderInfo(p, n).str + this.int(0, 3);
+    const holders = rivals ? `${p.human ? "Ser Vael's" : "Hearthmoor's"} marchers` : 'Marchers';
+    const canPay = p.coin >= toll;
+    const key = await this.ask(p, {
+      kind: 'border', node: n.id, toll, foeLeft: str, foe: 'marchers', rivals, canPay,
+      glyph: 'marchers', led: toll, price: toll,
+      text: `${n.name}. ${holders}, ${str} strong, hold the way into ${dest.name}${canPay ? ` and want ${toll} coin` : ''}. ${canPay ? 'YES pays, ' : ''}FIGHT forces it, NO takes the wild way.`,
+      options: canPay ? ['yes', 'fight', 'no'] : ['fight', 'no'],
+    });
+    if (key === 'yes') {
+      p.coin -= toll;
+      await this.show(p, { glyph: 'coin', led: -toll, text: `${You} pay${p.human ? '' : 's'} ${toll} coin at ${n.name} and cross into ${dest.name}.`, tone: 'neutral', sound: 'coin', mood: 'idle', short: true });
+      return 'across';
+    }
+    if (key === 'fight') {
+      const r = await this.battle(p, 'marchers', str, { intro: `${You} force${p.human ? '' : 's'} the crossing at ${n.name}! ${str} marchers close the way.` });
+      if (r === 'won') return 'across';
+      if (r === 'fled') await this.turnBack(p, n);
+      return 'back';
+    }
+    return this.wildWay(p, n, dest);
+  }
+
+  // Around the garrison by the wild way. The land itself takes its toll,
+  // unless the cartographer's map knows the smugglers' paths.
+  async wildWay(p, n, dest) {
+    const You = p.human ? 'You' : 'Ser Vael';
+    if (p.relics.map) {
+      await this.show(p, { glyph: 'map', text: `${p.human ? 'Your' : 'His'} map knows the smugglers' way round ${n.name}. ${You} slip${p.human ? '' : 's'} into ${dest.name} unseen.`, tone: 'good', sound: 'quiet', mood: 'good' });
+      return 'across';
+    }
+    if (this.chance(0.3)) {
+      await this.show(p, { glyph: 'border', text: `${You} find${p.human ? '' : 's'} a way round ${n.name} and cross into ${dest.name} unharmed.`, tone: 'good', sound: 'quiet', mood: 'idle' });
+      return 'across';
+    }
+    const g = this.s.gloom;
+    let men = Math.min(p.company, this.int(1, 3) + Math.floor(g / 8));
+    let food = 0;
+    let text;
+    switch (dest.terrain) {
+      case 'marsh':
+        men = Math.max(1, men - 1);
+        food = this.int(2, 4);
+        text = `The tide floods the flats on the wild way. ${food} provisions spoil and ${men} of the company drown.`;
+        break;
+      case 'volcanic':
+        text = `Ash vents flare along the wild way into ${dest.name}. ${men} of the company are burned.`;
+        break;
+      case 'snow':
+        text = `Snow buries the wild way into ${dest.name}. ${men} of the company freeze in the drifts.`;
+        break;
+      case 'forest':
+        men = Math.max(1, men - 1);
+        food = this.int(2, 4);
+        text = `The thorns close round the wild way. ${men} of the company are lost in them and ${food} provisions are left behind.`;
+        break;
+      case 'desert':
+        food = this.int(2, 4);
+        men = Math.max(1, men - 1);
+        text = `The dunes on the wild way drink ${food} provisions, and ${men} of the company fall to the heat.`;
+        break;
+      default:
+        text = `The wild way into ${dest.name} crosses a black bog. ${men} of the company are lost in the mire.`;
+    }
+    men = Math.min(p.company, men);
+    p.company -= men;
+    p.provisions = Math.max(0, p.provisions - food);
+    await this.show(p, { glyph: 'wound', led: -men, text, tone: 'bad', sound: 'lose', mood: 'danger', hold: true });
+    return p.company > 0 ? 'across' : 'lost';
+  }
+
+  // Driven back from a crossing: return to the space the Warden came from.
+  async turnBack(p, n) {
+    const back = p.prevNode && n.ends.includes(p.prevNode) ? p.prevNode : n.ends[0];
+    p.prevNode = n.id;
+    await this.io.movePawn?.(p, [n.id, back]);
+    p.node = back;
+    this.changed();
   }
 
   // ---------- the Spire ----------

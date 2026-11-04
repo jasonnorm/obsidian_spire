@@ -1952,3 +1952,51 @@ export function makeShardGem(colorHex = '#f2b632') {
   };
   return group;
 }
+
+// A border watch-post: a squat stone tower beside the road where it leaves
+// one province for the next, flying a pennant in both provinces' colours.
+export function makeBorderPost(colorA, colorB) {
+  const geos = cachedGeos('borderpost', () => {
+    const tower = new THREE.CylinderGeometry(0.105, 0.13, 0.36, 8);
+    tower.translate(0, 0.18, 0);
+    const cap = new THREE.CylinderGeometry(0.15, 0.14, 0.06, 8);
+    cap.translate(0, 0.39, 0);
+    const merlons = [];
+    for (let i = 0; i < 4; i++) {
+      const m = new THREE.BoxGeometry(0.06, 0.06, 0.06);
+      const a = (i * Math.PI) / 2 + Math.PI / 4;
+      m.translate(Math.sin(a) * 0.115, 0.45, Math.cos(a) * 0.115);
+      merlons.push(m);
+    }
+    const door = new THREE.BoxGeometry(0.06, 0.1, 0.02);
+    door.translate(0, 0.05, 0.123);
+    const pole = new THREE.CylinderGeometry(0.008, 0.008, 0.36, 5);
+    pole.translate(0, 0.6, 0);
+    const half = (y0, y1) => {
+      const s = new THREE.Shape();
+      // The pennant tapers from the pole to a point at x = 0.22.
+      const w = (y) => 0.22 * (1 - Math.abs(y - 0.7) / 0.07);
+      s.moveTo(0, y0);
+      s.lineTo(w(y0), y0);
+      s.lineTo(w(y1), y1);
+      s.lineTo(0, y1);
+      s.closePath();
+      return new THREE.ShapeGeometry(s);
+    };
+    return { stone: mergeGeos([tower, cap, ...merlons]), door, pole, top: half(0.7, 0.77), bottom: half(0.63, 0.7) };
+  });
+  const group = new THREE.Group();
+  group.name = 'BorderPost';
+  group.add(mesh(geos.stone, plastic('#8d8576', { roughness: 0.62, clearcoat: 0.2 })));
+  group.add(mesh(geos.door, plastic('#2a1c13', { roughness: 0.7 }), false));
+  group.add(mesh(geos.pole, plastic(PAL.brass, { roughness: 0.3, metalness: 0.6 })));
+  const flag = (geo, hex) => {
+    const m = mesh(geo, new THREE.MeshPhysicalMaterial({ ...plasticParams(hex, { roughness: 0.5 }), side: THREE.DoubleSide }), true, false);
+    return m;
+  };
+  const pennant = new THREE.Group();
+  pennant.add(flag(geos.top, colorA), flag(geos.bottom, colorB));
+  group.add(pennant);
+  group.userData.update = (t) => { pennant.rotation.y = Math.sin(t * 1.7 + group.position.x) * 0.25; };
+  return group;
+}

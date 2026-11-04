@@ -1,6 +1,6 @@
 # Obsidian Spire
 
-A single-player electronic quest board game for the browser, in the style of the talking-tower games of the early 1980s. You play the Warden of Hearthmoor against a computer rival, Ser Vael of Frostvale. Both of you race to pull the Sun, Moon and Star shards out of six barrows, storm the Spire at the centre of the board, and kindle its crown. A shared Gloom track rises every other round, and if it fills, both of you lose.
+A single-player electronic quest board game for the browser, in the style of the talking-tower games of the early 1980s. You play the Warden of Hearthmoor against a computer rival, Ser Vael of Frostvale. Both of you race to pull the Sun, Moon and Star shards out of six barrows, storm the Spire at the centre of the board, and kindle its crown. A shared Gloom track rises every fourth round, and if it fills, both of you lose.
 
 The rules, map, art, pieces and sounds are all original to this project.
 
@@ -35,15 +35,17 @@ Press `V` (or the Warden's eye button) at any point in a game to switch from the
 
 ## Rules in brief
 
-On your turn, click a glowing space to travel (two roads with a Swift Steed) or press Stay. Your company eats one provision per twelve soldiers afterwards.
+On your turn, click a glowing space to move one space (two with a Swift Steed) or press Stay. Every road has a space halfway along it, so a journey between two places takes two days. Your company eats one provision per twenty soldiers afterwards. The Spire pulses every fourth round.
 
 | Space | What happens |
 | --- | --- |
-| Your keep | Collects 4 coin of tithes per round you're away, up to 32. Cheap men-at-arms and stores. |
+| Your keep | Collects 3 coin of tithes per round you're away, up to 36. Cheap men-at-arms and stores. |
 | Market | Sellswords, provisions, and three of the six relics. |
 | Shrine | Pray for pilgrims, pay the oracle to reveal a barrow's shard, buy a ward. |
 | Barrow | Fight wights in the antechamber to read the sigil, then a Barrow King in the tomb for the shard. |
-| Wilds | A random event: brigands, wolves, wraiths, fog, storms, fever, caches, sellswords, pilgrims, peddlers, omens, Gloom surges, or the province's own beast (Bog Trolls that heal, venomous Giant Spiders, coin-stealing Cinder Imps, hard-hitting Frost Ogres, armoured Dune Scorpions). |
+| Wilds | A random event: brigands, wolves, wraiths, fog, storms, fever, caches, sellswords, pilgrims, peddlers, omens, Gloom surges, or the province's own beast (Bog Trolls that heal, venomous Giant Spiders, coin-stealing Cinder Imps, armoured Dune Scorpions, and the rarer, hard-hitting Frost Ogres). |
+| On the road | The halfway spaces: mostly quiet, with the same events as the wilds now and then. |
+| Border crossing | The halfway space where a road leaves one province for the next. A garrison holds the gate: pay its toll, fight through (it guards a toll chest), or take the wild way and lose men or provisions to the land. Free through your own marches; Ser Vael's are tougher and dearer. The Cartographer's Map knows the smugglers' way round. Rides always stop at a border. |
 | The Spire | With all three shards: beat the Sentinels, then the Ash Warden, then the fire-breathing Crown Dragon, then repeat the crown's note sequence on the sockets. The climb is one push: turn back before the dragon falls and every guardian rises again. A wrong note costs three of the company and the crown sings a new sequence. |
 
 Battles are fought one exchange at a time. Each Fight press is a roll weighted by your company against the foe's strength. A lost exchange costs about one man per six points of the foe's remaining strength (more for fierce, venomous and fire-breathing foes), so big fights need big companies. You can Flee whenever you like, and a battle's result stays up until you press Next or Enter. If your company is wiped out you're routed: home with five survivors and half your purse, and the Gloom goes up a notch.
@@ -57,8 +59,8 @@ Three chapters, each unlocked by clearing the one before. Progress and a mid-gam
 | Chapter | Gloom start / limit | Foe bonus | Crown song | Rival skill |
 | --- | --- | --- | --- | --- |
 | I. The Kindling Road | 0 / 24 | +0 | 5 notes and up | 0.7 |
-| II. Ashfall | 2 / 26 | +1 | 6 notes and up | 0.85 |
-| III. The Long Night | 2 / 26 | +2 | 7 notes and up | 0.95 |
+| II. Ashfall | 2 / 24 | +1 | 6 notes and up | 0.85 |
+| III. The Long Night | 2 / 23 | +2 | 7 notes and up | 0.95 |
 
 ## Source layout
 

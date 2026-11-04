@@ -461,6 +461,35 @@ export const GLYPHS = {
     `<rect x="24" y="69" width="72" height="6" rx="1"/><rect x="18" y="75" width="84" height="6" rx="1"/><path d="M24 75H96" ${ks(2)}/>`
   ),
 
+  // A march gate across the road: two towers, an arch with its portcullis
+  // half raised, a pennant on each tower and the road running through.
+  border: g(
+    `<path d="M24 22V8" ${ls(2.5)}/><path d="M25 8H38L34 11L38 14H25Z"/>`,
+    `<path d="M96 22V8" ${ls(2.5)}/><path d="M97 8H110L106 11L110 14H97Z"/>`,
+    `<rect x="14" y="28" width="22" height="52" ${sep(1.5)}/>`, crenels(12, 21, 26, 3, 7, sep(1.2)),
+    `<rect x="84" y="28" width="22" height="52" ${sep(1.5)}/>`, crenels(82, 21, 26, 3, 7, sep(1.2)),
+    `<path d="M36 36H84V80H74V58A14 14 0 0 0 46 58V80H36Z" ${sep(1.5)}/>`, crenels(36, 30, 48, 5, 6, sep(1.2)),
+    `<path d="M48 58V66M54 50V66M60 48V66M66 50V66M72 58V66M47 62H73" ${ls(2.5)}/>`,
+    `<rect x="22" y="42" width="5" height="11" rx="2.5" ${K}/><rect x="93" y="42" width="5" height="11" rx="2.5" ${K}/>`,
+    `<path d="M52 80L56 70H64L68 80Z" ${DIM}/>`,
+    ground(4, 116, 81)
+  ),
+
+  // The march's garrison: two spearmen behind a striped toll bar.
+  marchers: g(
+    `<path d="M30 80L32 50Q32 42 40 41H48Q56 42 56 50L58 80Z"/><circle cx="44" cy="32" r="7.5"/>`,
+    `<path d="M35 30Q35 19 44 18Q53 19 53 30Z"/><rect x="38" y="29.5" width="12" height="3" ${K}/>`,
+    `<path d="M24 82V10" ${ls(3)}/><path d="M24 4L28 13H20Z"/>`,
+    `<path d="M66 80L68 50Q68 42 76 41H84Q92 42 92 50L94 80Z"/><circle cx="80" cy="32" r="7.5"/>`,
+    `<path d="M71 30Q71 19 80 18Q89 19 89 30Z"/><rect x="74" y="29.5" width="12" height="3" ${K}/>`,
+    `<path d="M100 82V10" ${ls(3)}/><path d="M100 4L104 13H96Z"/>`,
+    `<path d="M70 50H90V66Q80 74 70 66Z" ${sep(1.5)}/><path d="M80 52V70M72 58H88" ${ks(2.5)}/>`,
+    `<rect x="8" y="58" width="104" height="8" rx="2" ${sep(1.5)}/>`,
+    `<path d="M20 58L28 66M40 58L48 66M60 58L68 66M80 58L88 66M100 58L108 66" ${ks(4)}/>`,
+    `<rect x="10" y="66" width="5" height="16"/><rect x="105" y="66" width="5" height="16"/>`,
+    ground(4, 116, 82)
+  ),
+
   barrow: g(
     taper([86, 44, 86, 32, 88, 22, 93, 15], 4.5, 1), taper([87, 31, 81, 27, 79, 23, 77, 20], 2.5, 0.8), taper([88.5, 24, 95, 22, 98, 20, 100, 16], 2.5, 0.8),
     `<path d="M8 80Q12 50 40 40Q60 34 80 40Q108 50 112 80Z"/>`,

@@ -152,13 +152,17 @@ function paintBoard(rng) {
   // Roads.
   for (const [a, b] of EDGES) road(g, NODE_BY_ID[a], NODE_BY_ID[b]);
 
-  // Spaces and labels.
+  // Spaces and labels. The halfway spaces on the roads get small studs and
+  // the border crossings a marker in both provinces' colours; only the
+  // landmarks carry printed names.
   for (const n of NODES) {
     if (n.type === 'spire') continue;
-    space(g, n);
+    if (n.type === 'road') stud(g, n);
+    else if (n.type === 'border') borderMark(g, n);
+    else space(g, n);
   }
   for (const n of NODES) {
-    if (n.type === 'spire') continue;
+    if (n.type === 'spire' || n.type === 'road' || n.type === 'border') continue;
     label(g, n);
   }
 
@@ -342,6 +346,61 @@ function space(g, n) {
     g.strokeStyle = 'rgba(70,48,28,0.45)';
     g.beginPath(); g.arc(x, y, r * 0.78, 0, Math.PI * 2); g.stroke();
   }
+}
+
+// Unit vector along the road through a halfway space, in board units.
+function roadDir(n) {
+  const [a, b] = n.ends.map((id) => NODE_BY_ID[id]);
+  const ax = a.type === 'spire' ? 0 : a.x; const az = a.type === 'spire' ? 0 : a.z;
+  const bx = b.type === 'spire' ? 0 : b.x; const bz = b.type === 'spire' ? 0 : b.z;
+  const l = Math.hypot(bx - ax, bz - az) || 1;
+  return [(bx - ax) / l, (bz - az) / l];
+}
+
+function stud(g, n) {
+  const [x, y] = w2c(n.x, n.z);
+  const r = 0.21 * K;
+  g.fillStyle = 'rgba(0,0,0,0.3)';
+  g.beginPath(); g.arc(x + 2, y + 3, r, 0, Math.PI * 2); g.fill();
+  g.fillStyle = '#e6d6ae';
+  g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+  g.lineWidth = 4;
+  g.strokeStyle = '#2e1f13';
+  g.stroke();
+  g.fillStyle = '#b8924a';
+  g.beginPath(); g.arc(x, y, r * 0.38, 0, Math.PI * 2); g.fill();
+}
+
+function borderMark(g, n) {
+  const [x, y] = w2c(n.x, n.z);
+  const [dx, dz] = roadDir(n);
+  // A dashed brass line across the road marks the border itself.
+  g.save();
+  g.strokeStyle = 'rgba(232,200,120,0.9)';
+  g.lineWidth = 5;
+  g.setLineDash([10, 7]);
+  g.beginPath();
+  g.moveTo(x - dz * 0.62 * K, y + dx * 0.62 * K);
+  g.lineTo(x + dz * 0.62 * K, y - dx * 0.62 * K);
+  g.stroke();
+  g.restore();
+  // A diamond split between the two provinces' colours.
+  const r = 0.3 * K;
+  const ang = Math.atan2(dz, dx);
+  g.save();
+  g.translate(x, y);
+  g.rotate(ang);
+  g.fillStyle = 'rgba(0,0,0,0.35)';
+  g.beginPath(); g.moveTo(r + 3, 4); g.lineTo(3, r + 4); g.lineTo(-r + 3, 4); g.lineTo(3, -r + 4); g.closePath(); g.fill();
+  // The half toward each end of the road takes that side's colour.
+  g.fillStyle = PROVINCES[NODE_BY_ID[n.ends[0]].wedge].accent;
+  g.beginPath(); g.moveTo(-r, 0); g.lineTo(0, -r); g.lineTo(0, r); g.closePath(); g.fill();
+  g.fillStyle = PROVINCES[NODE_BY_ID[n.ends[1]].wedge].accent;
+  g.beginPath(); g.moveTo(r, 0); g.lineTo(0, -r); g.lineTo(0, r); g.closePath(); g.fill();
+  g.lineWidth = 5;
+  g.strokeStyle = '#2e1f13';
+  g.beginPath(); g.moveTo(r, 0); g.lineTo(0, r); g.lineTo(-r, 0); g.lineTo(0, -r); g.closePath(); g.stroke();
+  g.restore();
 }
 
 function label(g, n) {
@@ -531,6 +590,20 @@ export class Board3D {
       scene.add(m);
       this.buildings[n.id] = m;
     }
+    // A watch-post beside every border crossing, on the side away from the
+    // Spire, flying the colours of the provinces it divides.
+    this.posts = [];
+    for (const n of NODES) {
+      if (n.type !== 'border') continue;
+      const [dx, dz] = roadDir(n);
+      let px = -dz; let pz = dx;
+      if (px * n.x + pz * n.z < 0) { px = -px; pz = -pz; }
+      const post = M.makeBorderPost(PROVINCES[n.wedges[0]].accent, PROVINCES[n.wedges[1]].accent);
+      post.position.set(n.x + px * 0.5, 0, n.z + pz * 0.5);
+      post.rotation.y = Math.atan2(n.x, n.z);
+      scene.add(post);
+      this.posts.push(post);
+    }
 
     this.scatterScenery(rng);
     this.buildHitAreas();
@@ -582,11 +655,11 @@ export class Board3D {
         const r = 4.9 + rng() * 4.7;
         const x = r * Math.sin(phi);
         const z = r * Math.cos(phi);
-        if (NODES.some((n) => Math.hypot(n.x - x, n.z - z) < 1.15)) continue;
+        if (NODES.some((n) => Math.hypot(n.x - x, n.z - z) < (n.ring === 'road' ? 0.75 : 1.15))) continue;
         if (roads.some(([a, b]) => distSeg(x, z, a, b) < 0.42)) continue;
         if (placed.some(([px, pz]) => Math.hypot(px - x, pz - z) < 0.55)) continue;
         // Keep clear of the node labels printed below each space.
-        if (NODES.some((n) => Math.abs(n.x - x) < 1.3 && z - n.z > 0.6 && z - n.z < 1.3)) continue;
+        if (NODES.some((n) => n.ring !== 'road' && Math.abs(n.x - x) < 1.3 && z - n.z > 0.6 && z - n.z < 1.3)) continue;
         const kind = kinds[pv.terrain][Math.floor(rng() * 4)];
         if (!protos[kind]) protos[kind] = M.makeDecoration(kind);
         const d = protos[kind].clone();
@@ -607,13 +680,15 @@ export class Board3D {
     const hitMat = new THREE.MeshBasicMaterial({ visible: false });
     for (const n of NODES) {
       const isSpire = n.type === 'spire';
-      const hit = new THREE.Mesh(new THREE.CylinderGeometry(isSpire ? 2.6 : 0.85, isSpire ? 2.6 : 0.85, isSpire ? 8 : 1.6, 24), hitMat);
+      const small = n.type === 'road' || n.type === 'border';
+      const hr = isSpire ? 2.6 : small ? 0.5 : 0.85;
+      const hit = new THREE.Mesh(new THREE.CylinderGeometry(hr, hr, isSpire ? 8 : 1.6, 24), hitMat);
       hit.position.set(n.x, isSpire ? 4 : 0.8, n.z);
       hit.userData.nodeId = n.id;
       this.scene.add(hit);
       this.hits.push(hit);
       const ring = new THREE.Mesh(
-        new THREE.RingGeometry(isSpire ? 2.12 : 0.68, isSpire ? 2.42 : 0.86, 48),
+        new THREE.RingGeometry(isSpire ? 2.12 : small ? 0.3 : 0.68, isSpire ? 2.42 : small ? 0.44 : 0.86, 48),
         new THREE.MeshBasicMaterial({ color: '#ffcf6a', transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
       );
       ring.rotation.x = -Math.PI / 2;
@@ -959,6 +1034,7 @@ export class Board3D {
     // Model animation hooks.
     this.spire.userData.update?.(t);
     for (const m of Object.values(this.buildings)) m.userData.update?.(t);
+    for (const m of this.posts || []) m.userData.update?.(t);
     for (const p of Object.values(this.pawns)) p.userData.update?.(t);
     // Highlight rings pulse.
     for (const id of this.highlighted) {
