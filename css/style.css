@@ -1134,3 +1134,39 @@ body.fp-mode .tb-cam { display: none; }
 }
 .road-chip.t-border { border-color: #c9a45c; border-style: dashed; }
 .road-chip.t-road { opacity: 0.92; }
+
+/* The deal strip takes the crown sockets' row while buying or haggling. */
+.spire-console.dealing .sc-sockets { display: none; }
+.sc-deal { display: flex; align-items: center; gap: 6px; min-height: 30px; }
+.sc-deal[hidden] { display: none; }
+.sc-deal-btn {
+  font-family: var(--f-head);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass-hi, #e8c878);
+  background: #0d0a0f;
+  border: 1px solid #5a4630;
+  border-radius: 999px;
+  min-width: 30px;
+  padding: 4px 9px;
+  cursor: pointer;
+}
+.sc-deal-btn[hidden] { display: none; }
+.sc-deal-btn:disabled { color: #4a3f52; border-color: #3a2f40; cursor: default; }
+.sc-deal-btn:not(:disabled):hover { border-color: var(--brass-hi, #e8c878); box-shadow: 0 0 8px rgba(232, 200, 120, 0.35); }
+.sc-deal-haggle { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.sc-deal-haggle.live { border-color: #b8924a; animation: socketlive 1.6s ease-in-out infinite; --gem: #b8924a; }
+.sc-deal-haggle .sc-key-hint { position: static; opacity: 0.6; font-size: 0.6rem; }
+.sc-deal-qty {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-family: var(--f-device);
+  font-size: 0.95rem;
+  color: #ffd27a;
+  text-shadow: 0 0 6px rgba(255, 170, 60, 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

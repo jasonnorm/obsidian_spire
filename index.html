@@ -78,6 +78,13 @@
           <p class="sr-only" id="sc-say" aria-live="polite"></p>
         </div>
         <div class="sc-sockets" id="sc-sockets" aria-label="Crown sockets"></div>
+        <div class="sc-deal" id="sc-deal" hidden>
+          <button type="button" class="sc-deal-btn" id="deal-less" aria-label="One fewer" aria-keyshortcuts="-">&minus;</button>
+          <span class="sc-deal-qty" id="deal-qty" aria-live="polite"></span>
+          <button type="button" class="sc-deal-btn" id="deal-more" aria-label="One more" aria-keyshortcuts="+">+</button>
+          <button type="button" class="sc-deal-btn" id="deal-max" aria-keyshortcuts="M">Max</button>
+          <button type="button" class="sc-deal-btn sc-deal-haggle" id="deal-haggle" aria-keyshortcuts="H">Haggle<span class="sc-key-hint" aria-hidden="true">H</span></button>
+        </div>
         <div class="sc-keypad" id="sc-keypad"></div>
         <div class="sc-plate">Electronic Quest Unit &middot; Model 81</div>
       </div>
@@ -147,6 +154,7 @@
     <dl>
       <dt>Your keep</dt><dd>Hearthmoor gathers 3 coin of tithes each round you are away, up to 36. Men-at-arms cost 2 here, provisions 3 for five.</dd>
       <dt>Market towns</dt><dd>Sellswords at 3 coin, provisions at 4 for five, and three relics, different in each town.</dd>
+      <dt>Buying and haggling</dt><dd>Men and provisions can be bought several at a time: <kbd>+</kbd> and <kbd>&minus;</kbd> (or &uarr; &darr;) set how many, <kbd>M</kbd> takes as many as you can afford, and <kbd>Yes</kbd> buys. <kbd>Haggle</kbd> (or <kbd>H</kbd>) bargains over the whole order, at markets, with roadside sellswords and peddlers, and over border tolls. Each try may knock 10&ndash;16% off, up to 30%, but push a seller too often and he digs in, puts the price up, or will not deal with you at all that day. Your own keep's stewards sell at cost and will not haggle.</dd>
       <dt>Shrines</dt><dd>Pray for pilgrims to join you (once every five rounds), pay the oracle to learn which shard a barrow hides, or buy a ward that turns aside one wraith, fever or curse.</dd>
       <dt>Barrows</dt><dd>Wights hold the antechamber. Beat them and the sigil on the tomb door shows which shard lies below. A Barrow King guards the tomb itself. Win there and the shard is yours. Six barrows hide two shards of each kind.</dd>
       <dt>The wilds</dt><dd>Brigands, wolves, wraiths, fog, storms, fever, caches, sellswords, pilgrims, peddlers and omens. Each province also breeds its own beast: Bog Trolls in Saltmere heal their wounds as you fight, Giant Spiders in Thornwood carry venom, Cinder Imps in Emberwold steal coin, and Dune Scorpions in Sunscar have shells that blunt your blows. Frost Ogres hit hard but carry loot; they are rarer, because Frostvale's own marchers drive them out, just as yours keep Hearthmoor's roads clear.</dd>

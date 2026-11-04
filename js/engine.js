@@ -5,7 +5,8 @@
 // io contract (all may return promises):
 //   io.update(game)                       state changed, redraw
 //   io.show(player, evt)                  display an event on the Spire
-//   io.ask(player, prompt) -> key         human decision ('yes','no','next','end','fight','flee')
+//   io.ask(player, prompt) -> key         human decision ('yes','no','next','end','fight','flee','haggle');
+//                                         a shop prompt's qty may be set before answering 'yes'
 //   io.chooseMove(player, options) -> {to} | {stay:true}
 //   io.movePawn(player, path, {teleport})
 //   io.kindle(player, sequence) -> bool   memory test at the crown
@@ -340,47 +341,107 @@ export class Game {
     await this.show(p, { glyph: 'keep', text: `The gates of ${n.name} stay shut to a rival Warden.`, tone: 'neutral', sound: 'deny', mood: 'idle' });
   }
 
-  // A device-style shop: the Spire shows one item at a time.
-  async shopLoop(p, n, goods, intro) {
+  // ---------- haggling ----------
+  // `d` is the running deal for one item: { off, tries, closed }, where `off`
+  // is the share knocked off the asking price (negative once the seller has
+  // put it up). Each try may win 10-16% off, up to 30%, but a seller pushed
+  // too often digs in, raises the price, or refuses to deal at all.
+  dealPrice(base, d, qty = 1) { return Math.max(1, Math.round(base * qty * (1 - d.off))); }
+
+  async haggle(p, d, base, who) {
+    const You = p.human ? 'You' : 'Ser Vael';
+    d.tries++;
+    const pct = () => (d.off > 0 ? `${Math.round(d.off * 100)}% off` : d.off < 0 ? `${Math.round(-d.off * 100)}% more` : 'the asking price');
+    if (d.off < 0.3 && this.chance(0.55 - 0.15 * (d.tries - 1))) {
+      d.off = Math.min(0.3, d.off + 0.1 + Math.round(this.rand() * 6) / 100);
+      await this.show(p, { glyph: 'coin', led: this.dealPrice(base, d), text: `${You} haggle${p.human ? '' : 's'}. ${who} grumbles and comes down: ${pct()}.`, tone: 'good', sound: 'coin', mood: 'good', short: true });
+      return 'down';
+    }
+    if (this.chance(0.3 + 0.15 * d.tries)) {
+      // A first try never ends the deal; after that the seller may walk away.
+      if (d.tries >= 3 || (d.tries >= 2 && this.chance(0.45))) {
+        d.closed = true;
+        await this.show(p, { glyph: 'coin', text: `${who} takes offence and will not deal with ${p.human ? 'you' : 'him'} today.`, tone: 'bad', sound: 'deny', mood: 'warn', short: true });
+        return 'closed';
+      }
+      d.off -= 0.15;
+      await this.show(p, { glyph: 'coin', led: this.dealPrice(base, d), text: `${who} takes offence and puts the price up: ${pct()}.`, tone: 'bad', sound: 'deny', mood: 'warn', short: true });
+      return 'up';
+    }
+    await this.show(p, { glyph: 'coin', led: this.dealPrice(base, d), text: d.off >= 0.3 ? `${who} will not go a copper lower.` : `${who} will not budge.`, tone: 'neutral', sound: 'deny', mood: 'idle', short: true });
+    return 'same';
+  }
+
+  // A device-style shop: the Spire shows one item at a time. Men and
+  // provisions can be bought several at once (the prompt's qty, set by the
+  // player or the rival before YES), and anything can be haggled over except
+  // at a Warden's own keep.
+  async shopLoop(p, n, goods, intro, { haggle = true, who = 'The merchant' } = {}) {
     await this.show(p, { glyph: intro.glyph, text: intro.text, sound: intro.sound || 'market', mood: 'good', short: true });
     if (!goods.length) return;
+    const deals = goods.map(() => ({ off: 0, tries: 0, closed: false }));
     let i = 0;
     let guard = 0;
     while (guard++ < 400) {
       const g = goods[i];
+      const d = deals[i];
       const owned = g.relic && p.relics[g.relic];
-      const price = g.price;
-      const key = await this.ask(p, {
-        kind: 'shop', item: g, price, place: n.id,
+      const per = g.company || g.provisions || 1;
+      const room = g.company ? LIMITS.company - p.company : g.provisions ? LIMITS.provisions - p.provisions : 1;
+      let qtyMax = 1;
+      if (!g.relic) {
+        qtyMax = Math.floor(room / per);
+        while (qtyMax > 1 && this.dealPrice(g.price, d, qtyMax) > p.coin) qtyMax--;
+        qtyMax = Math.max(1, qtyMax);
+      }
+      const price = this.dealPrice(g.price, d);
+      const open = !owned && !d.closed;
+      const each = g.relic ? '' : g.company ? ' a head' : ' a sack';
+      const was = d.off > 0 ? `, ${Math.round(d.off * 100)}% off` : d.off < 0 ? `, ${Math.round(-d.off * 100)}% dearer` : '';
+      const prompt = {
+        kind: 'shop', item: g, price, base: g.price, off: d.off, place: n.id, haggles: d.tries,
+        qty: Math.min(d.qty || 1, qtyMax), qtyMax: open ? qtyMax : 0, unit: per, unitName: g.company ? 'men' : g.provisions ? 'provisions' : '',
         glyph: g.glyph, led: price,
-        text: owned ? `${g.name}: you already carry one.` : `${g.name} for ${price} coin. ${g.blurb}`,
-        options: ['yes', 'next', 'end'],
-      });
+        text: owned ? `${g.name}: you already carry one.`
+          : d.closed ? `${g.name}: ${who.toLowerCase()} will not sell to you today.`
+            : `${g.name}: ${g.price} coin${each}${was}. ${g.blurb}`,
+        options: open ? ['yes', ...(haggle && d.tries < 3 ? ['haggle'] : []), 'next', 'end'] : ['next', 'end'],
+      };
+      const key = await this.ask(p, prompt);
       if (key === 'end') break;
       if (key === 'next' || key === 'no') { i = (i + 1) % goods.length; continue; }
-      if (key === 'yes') {
-        if (owned) { await this.show(p, { glyph: g.glyph, text: 'You already carry one.', sound: 'deny', short: true }); continue; }
-        if (p.coin < price) { await this.show(p, { glyph: 'coin', led: p.coin, text: `Not enough coin. You hold ${p.coin}.`, tone: 'bad', sound: 'deny', short: true }); continue; }
-        p.coin -= price;
-        if (g.company) p.company += g.company;
-        if (g.provisions) p.provisions += g.provisions;
-        if (g.relic) p.relics[g.relic] = true;
-        this.clamp(p);
-        const what = g.company ? `${p.human ? 'You hire' : 'Ser Vael hires'} ${g.company === 1 ? 'a' : g.company} ${g.unit}` : g.provisions ? `${p.human ? 'You buy' : 'Ser Vael buys'} ${g.provisions} provisions` : `${p.human ? 'You buy' : 'Ser Vael buys'} the ${g.name}`;
-        await this.show(p, {
-          glyph: g.glyph, led: g.company ? p.company : g.provisions ? p.provisions : price,
-          text: `${what}.`, tone: 'good', sound: g.relic ? 'relic' : 'coin', mood: 'good', short: true,
-          log: `${what} for ${price} coin.`,
-        });
+      if (key === 'haggle') {
+        // Haggle over the order as it stands; the quantity carries over.
+        d.qty = prompt.qty;
+        await this.haggle(p, d, g.price, who);
+        continue;
       }
+      if (key !== 'yes') continue;
+      if (owned) { await this.show(p, { glyph: g.glyph, text: 'You already carry one.', sound: 'deny', short: true }); continue; }
+      const qty = Math.max(1, Math.min(qtyMax, Math.floor(Number(prompt.qty) || 1)));
+      const cost = this.dealPrice(g.price, d, qty);
+      if (p.coin < cost) { await this.show(p, { glyph: 'coin', led: p.coin, text: `Not enough coin. You hold ${p.coin}.`, tone: 'bad', sound: 'deny', short: true }); continue; }
+      p.coin -= cost;
+      if (g.company) p.company += g.company * qty;
+      if (g.provisions) p.provisions += g.provisions * qty;
+      if (g.relic) p.relics[g.relic] = true;
+      this.clamp(p);
+      const n1 = g.company * qty;
+      const what = g.company ? `${p.human ? 'You hire' : 'Ser Vael hires'} ${n1 === 1 ? 'a' : n1} ${n1 === 1 ? g.unit : g.units || `${g.unit}s`}`
+        : g.provisions ? `${p.human ? 'You buy' : 'Ser Vael buys'} ${g.provisions * qty} provisions`
+          : `${p.human ? 'You buy' : 'Ser Vael buys'} the ${g.name}`;
+      await this.show(p, {
+        glyph: g.glyph, led: g.company ? p.company : g.provisions ? p.provisions : cost,
+        text: `${what} for ${cost} coin.`, tone: 'good', sound: g.relic ? 'relic' : 'coin', mood: 'good', short: true,
+      });
     }
   }
 
   staples(rate) {
     const m = this.priceMult();
     return [
-      { kind: 'company', name: rate.unitName, unit: rate.unit, glyph: 'sellswords', price: Math.round(rate.company * m), company: 1, blurb: 'One more blade for your company.' },
-      { kind: 'provisions', name: '5 provisions', glyph: 'provisions', price: Math.round(rate.provisions * m), provisions: 5, blurb: `Your company eats ${'{upkeep}'} a day.` },
+      { kind: 'company', name: rate.unitName, unit: rate.unit, units: rate.units, glyph: 'sellswords', price: Math.round(rate.company * m), company: 1, blurb: 'One more blade for your company.' },
+      { kind: 'provisions', name: 'Provisions', glyph: 'provisions', price: Math.round(rate.provisions * m), provisions: 5, blurb: `Five to a sack. Your company eats ${'{upkeep}'} a day.` },
     ];
   }
 
@@ -392,14 +453,14 @@ export class Game {
       this.clamp(p);
       await this.show(p, { glyph: 'tithe', led: tithe, text: `The stewards of ${n.name} hand over ${tithe} coin of tithes gathered while ${p.human ? 'you were' : 'he was'} away.`, tone: 'good', sound: 'coin', mood: 'good' });
     }
-    const goods = this.staples({ unitName: 'Men-at-arms', unit: 'man-at-arms', company: 2, provisions: 3 })
+    const goods = this.staples({ unitName: 'Men-at-arms', unit: 'man-at-arms', units: 'men-at-arms', company: 2, provisions: 3 })
       .map((g) => ({ ...g, blurb: g.blurb.replace('{upkeep}', this.upkeep(p)), glyph: g.kind === 'company' ? 'recruit' : g.glyph, name: g.kind === 'company' ? 'Men-at-arms' : g.name }));
-    await this.shopLoop(p, n, goods, { glyph: 'keep', text: `${n.name}. Home. Men-at-arms and stores are cheaper here.`, sound: 'home' });
+    await this.shopLoop(p, n, goods, { glyph: 'keep', text: `${n.name}. Home. Men-at-arms and stores are cheaper here, at cost.`, sound: 'home' }, { haggle: false });
   }
 
   async marketFlow(p, n) {
     const m = this.priceMult();
-    const goods = this.staples({ unitName: 'Sellswords', unit: 'sellsword', company: 3, provisions: 4 })
+    const goods = this.staples({ unitName: 'Sellswords', unit: 'sellsword', units: 'sellswords', company: 3, provisions: 4 })
       .map((g) => ({ ...g, blurb: g.blurb.replace('{upkeep}', this.upkeep(p)) }));
     for (const rid of this.s.markets[n.id].relics) {
       const r = RELIC_BY_ID[rid];
@@ -870,14 +931,22 @@ export class Game {
       }
       case 'sellswords': {
         const k = this.int(2, 4);
-        const cost = Math.round(2 * k * this.priceMult());
-        const key = await this.ask(p, { kind: 'offer', what: 'company', amount: k, price: cost, glyph: 'sellswords', led: cost, text: `${k} sellswords at ${n.name} offer their blades for ${cost} coin. Hire them?`, options: ['yes', 'no'] });
-        if (key === 'yes') {
-          if (p.coin < cost) { await this.show(p, { glyph: 'coin', led: p.coin, text: 'Not enough coin. They walk away.', sound: 'deny', tone: 'bad', short: true }); return; }
-          p.coin -= cost;
+        const base = Math.round(2 * k * this.priceMult());
+        const d = { off: 0, tries: 0, closed: false };
+        for (let guard = 0; guard < 8; guard++) {
+          d.price = this.dealPrice(base, d);
+          const key = await this.ask(p, { kind: 'offer', what: 'company', amount: k, price: d.price, base, haggles: d.tries, glyph: 'sellswords', led: d.price, text: `${k} sellswords at ${n.name} offer their blades for ${d.price} coin${d.price !== base ? ` (asked ${base})` : ''}. Hire them?`, options: d.tries < 3 ? ['yes', 'haggle', 'no'] : ['yes', 'no'] });
+          if (key === 'haggle') {
+            if ((await this.haggle(p, d, base, 'Their captain')) === 'closed') return;
+            continue;
+          }
+          if (key !== 'yes') return;
+          if (p.coin < d.price) { await this.show(p, { glyph: 'coin', led: p.coin, text: 'Not enough coin. They walk away.', sound: 'deny', tone: 'bad', short: true }); return; }
+          p.coin -= d.price;
           p.company += k;
           this.clamp(p);
-          await this.show(p, { glyph: 'recruit', led: p.company, text: `${k} sellswords join ${p.human ? 'you' : 'Ser Vael'}.`, tone: 'good', sound: 'gain', mood: 'good' });
+          await this.show(p, { glyph: 'recruit', led: p.company, text: `${k} sellswords join ${p.human ? 'you' : 'Ser Vael'} for ${d.price} coin.`, tone: 'good', sound: 'gain', mood: 'good' });
+          return;
         }
         return;
       }
@@ -895,13 +964,21 @@ export class Game {
           return;
         }
         const r = this.pick(unowned);
-        const cost = Math.round(r.price * 0.85 * this.priceMult());
-        const key = await this.ask(p, { kind: 'offer', what: 'relic', relic: r.id, price: cost, glyph: r.id, led: cost, text: `A peddler offers a ${r.name} for ${cost} coin. ${r.text} Buy it?`, options: ['yes', 'no'] });
-        if (key === 'yes') {
-          if (p.coin < cost) { await this.show(p, { glyph: 'coin', led: p.coin, text: 'Not enough coin. The peddler shrugs and moves on.', sound: 'deny', tone: 'bad', short: true }); return; }
-          p.coin -= cost;
+        const base = Math.round(r.price * 0.85 * this.priceMult());
+        const d = { off: 0, tries: 0, closed: false };
+        for (let guard = 0; guard < 8; guard++) {
+          d.price = this.dealPrice(base, d);
+          const key = await this.ask(p, { kind: 'offer', what: 'relic', relic: r.id, price: d.price, base, haggles: d.tries, glyph: r.id, led: d.price, text: `A peddler offers a ${r.name} for ${d.price} coin${d.price !== base ? ` (asked ${base})` : ''}. ${r.text} Buy it?`, options: d.tries < 3 ? ['yes', 'haggle', 'no'] : ['yes', 'no'] });
+          if (key === 'haggle') {
+            if ((await this.haggle(p, d, base, 'The peddler')) === 'closed') return;
+            continue;
+          }
+          if (key !== 'yes') return;
+          if (p.coin < d.price) { await this.show(p, { glyph: 'coin', led: p.coin, text: 'Not enough coin. The peddler shrugs and moves on.', sound: 'deny', tone: 'bad', short: true }); return; }
+          p.coin -= d.price;
           p.relics[r.id] = true;
-          await this.show(p, { glyph: r.id, text: `${You} buy${p.human ? '' : 's'} the ${r.name}.`, tone: 'good', sound: 'relic', mood: 'good' });
+          await this.show(p, { glyph: r.id, text: `${You} buy${p.human ? '' : 's'} the ${r.name} for ${d.price} coin.`, tone: 'good', sound: 'relic', mood: 'good' });
+          return;
         }
         return;
       }
@@ -945,16 +1022,23 @@ export class Game {
     }
     const str = this.borderInfo(p, n).str + this.int(0, 3);
     const holders = rivals ? `${p.human ? "Ser Vael's" : "Hearthmoor's"} marchers` : 'Marchers';
-    const canPay = p.coin >= toll;
-    const key = await this.ask(p, {
-      kind: 'border', node: n.id, toll, foeLeft: str, foe: 'marchers', rivals, canPay,
-      glyph: 'marchers', led: toll, price: toll,
-      text: `${n.name}. ${holders}, ${str} strong, hold the way into ${dest.name}${canPay ? ` and want ${toll} coin` : ''}. ${canPay ? 'YES pays, ' : ''}FIGHT forces it, NO takes the wild way.`,
-      options: canPay ? ['yes', 'fight', 'no'] : ['fight', 'no'],
-    });
+    const d = { off: 0, tries: 0, closed: false };
+    let key;
+    for (let guard = 0; guard < 8; guard++) {
+      d.price = this.dealPrice(toll, d);
+      const canPay = !d.closed && p.coin >= d.price;
+      key = await this.ask(p, {
+        kind: 'border', node: n.id, toll: d.price, base: toll, haggles: d.tries, foeLeft: str, foe: 'marchers', rivals, canPay,
+        glyph: 'marchers', led: d.price, price: d.price,
+        text: `${n.name}. ${holders}, ${str} strong, hold the way into ${dest.name}${canPay ? ` and want ${d.price} coin` : d.closed ? ' and will take no coin from you' : ''}. ${canPay ? 'YES pays, ' : ''}FIGHT forces it, NO takes the wild way.`,
+        options: canPay ? ['yes', ...(d.tries < 3 ? ['haggle'] : []), 'fight', 'no'] : ['fight', 'no'],
+      });
+      if (key !== 'haggle') break;
+      await this.haggle(p, d, toll, 'The marcher captain');
+    }
     if (key === 'yes') {
-      p.coin -= toll;
-      await this.show(p, { glyph: 'coin', led: -toll, text: `${You} pay${p.human ? '' : 's'} ${toll} coin at ${n.name} and cross into ${dest.name}.`, tone: 'neutral', sound: 'coin', mood: 'idle', short: true });
+      p.coin -= d.price;
+      await this.show(p, { glyph: 'coin', led: -d.price, text: `${You} pay${p.human ? '' : 's'} ${d.price} coin at ${n.name} and cross into ${dest.name}.`, tone: 'neutral', sound: 'coin', mood: 'idle', short: true });
       return 'across';
     }
     if (key === 'fight') {

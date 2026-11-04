@@ -40,7 +40,7 @@ On your turn, click a glowing space to move one space (two with a Swift Steed) o
 | Space | What happens |
 | --- | --- |
 | Your keep | Collects 3 coin of tithes per round you're away, up to 36. Cheap men-at-arms and stores. |
-| Market | Sellswords, provisions, and three of the six relics. |
+| Market | Sellswords, provisions, and three of the six relics. Buy men and provisions several at a time (`+`/`-`, `M` for max) and Haggle (`H`) over the bill: up to 30% off, but a seller pushed too hard puts the price up or stops dealing. Haggling also works on roadside offers and border tolls, never at your own keep. |
 | Shrine | Pray for pilgrims, pay the oracle to reveal a barrow's shard, buy a ward. |
 | Barrow | Fight wights in the antechamber to read the sigil, then a Barrow King in the tomb for the shard. |
 | Wilds | A random event: brigands, wolves, wraiths, fog, storms, fever, caches, sellswords, pilgrims, peddlers, omens, Gloom surges, or the province's own beast (Bog Trolls that heal, venomous Giant Spiders, coin-stealing Cinder Imps, armoured Dune Scorpions, and the rarer, hard-hitting Frost Ogres). |
@@ -50,7 +50,7 @@ On your turn, click a glowing space to move one space (two with a Swift Steed) o
 
 Battles are fought one exchange at a time. Each Fight press is a roll weighted by your company against the foe's strength. A lost exchange costs about one man per six points of the foe's remaining strength (more for fierce, venomous and fire-breathing foes), so big fights need big companies. You can Flee whenever you like, and a battle's result stays up until you press Next or Enter. If your company is wiped out you're routed: home with five survivors and half your purse, and the Gloom goes up a notch.
 
-Keyboard: `Y` yes, `N` no, `X` next, `F` fight, `L` flee, `S` stay, `I` ledger, `R` repeat, `E` end, `1`/`2`/`3` crown sockets, `Space` hurries a message along.
+Keyboard: `Y` yes, `N` no, `X` next, `F` fight, `L` flee, `S` stay, `I` ledger, `R` repeat, `E` end, `H` haggle, `+`/`-` or arrow keys to set how many, `M` as many as you can afford, `1`/`2`/`3` crown sockets, `Space` hurries a message along.
 
 ## Campaign
 

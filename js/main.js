@@ -146,7 +146,13 @@ function makeIO(myGen) {
 
 function promptHint(prompt) {
   if (prompt.battle) return 'Battle! Press FIGHT for another exchange or FLEE to fall back.';
-  if (prompt.kind === 'shop') return 'YES buys, NEXT shows the next item, END leaves.';
+  const haggle = prompt.options?.includes('haggle') ? ', HAGGLE (H) bargains' : '';
+  if (prompt.kind === 'shop') {
+    const many = prompt.qtyMax > 1 ? ' + and \u2212 (or \u2191 \u2193, M for max) set how many.' : '';
+    return `YES buys${haggle}, NEXT shows the next item, END leaves.${many}`;
+  }
+  if (prompt.kind === 'offer') return `YES accepts${haggle}, NO declines.`;
+  if (prompt.kind === 'border') return `${prompt.canPay ? `YES pays${haggle}, ` : ''}FIGHT forces the crossing, NO takes the wild way.`;
   return '';
 }
 

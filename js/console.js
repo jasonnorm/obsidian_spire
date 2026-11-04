@@ -115,6 +115,22 @@ export class SpireConsole {
       this.socketEls[s.k] = b;
     }
 
+    // The deal strip: how many to buy, and a haggle button.
+    this.deal = {
+      el: r.querySelector('#sc-deal'),
+      qty: r.querySelector('#deal-qty'),
+      less: r.querySelector('#deal-less'),
+      more: r.querySelector('#deal-more'),
+      max: r.querySelector('#deal-max'),
+      haggle: r.querySelector('#deal-haggle'),
+    };
+    if (this.deal.el) {
+      this.deal.less.addEventListener('click', () => this.setQty(-1));
+      this.deal.more.addEventListener('click', () => this.setQty(1));
+      this.deal.max.addEventListener('click', () => this.setQty(Infinity));
+      this.deal.haggle.addEventListener('click', () => this.press('haggle'));
+    }
+
     this.window.addEventListener('click', () => this.skip());
     this.ticker.addEventListener('click', () => this.skip());
     this.setLED(null);
@@ -242,7 +258,62 @@ export class SpireConsole {
     return new Promise((resolve) => {
       this.pending = { resolve, prompt, keys: new Set(prompt.options) };
       this.enable([...prompt.options, ...UTILITY]);
+      this.showDeal(prompt);
     });
+  }
+
+  // ---------- buying several and haggling ----------
+  showDeal(prompt) {
+    const d = this.deal;
+    if (!d.el) return;
+    const haggle = prompt.options.includes('haggle');
+    const many = (prompt.qtyMax || 0) > 1;
+    if (!haggle && !many) { this.hideDeal(); return; }
+    this.dealPrompt = prompt;
+    this.root.classList.add('dealing');
+    d.el.hidden = false;
+    for (const b of [d.less, d.more, d.max]) b.hidden = !many;
+    d.qty.hidden = !many && !prompt.price;
+    d.haggle.disabled = !haggle;
+    d.haggle.classList.toggle('live', haggle);
+    this.updateDeal();
+  }
+
+  hideDeal() {
+    this.dealPrompt = null;
+    this.root.classList.remove('dealing');
+    if (this.deal.el) this.deal.el.hidden = true;
+  }
+
+  setQty(delta) {
+    const pr = this.dealPrompt;
+    if (!pr || !(pr.qtyMax > 1)) return false;
+    const q = delta === Infinity ? pr.qtyMax : (pr.qty || 1) + delta;
+    pr.qty = Math.max(1, Math.min(pr.qtyMax, q));
+    audio.play('key');
+    this.updateDeal();
+    return true;
+  }
+
+  updateDeal() {
+    const pr = this.dealPrompt;
+    if (!pr) return;
+    const d = this.deal;
+    const q = pr.qty || 1;
+    // Same sum as the engine's dealPrice: the haggled share comes off the whole bill.
+    const total = pr.base ? Math.max(1, Math.round(pr.base * q * (1 - (pr.off || 0)))) : q * (pr.price || 0);
+    if (pr.qtyMax > 1) {
+      const got = pr.unit * q;
+      const what = pr.unitName === 'provisions' ? `${q} sack${q === 1 ? '' : 's'} (${got})` : `${got} ${pr.unitName === 'men' ? (got === 1 ? 'man' : 'men') : ''}`.trim();
+      const off = pr.off ? ` (${pr.off > 0 ? '\u2212' : '+'}${Math.round(Math.abs(pr.off) * 100)}%)` : '';
+      d.qty.textContent = `${what} · ${total} coin${off}`;
+      d.less.disabled = q <= 1;
+      d.more.disabled = q >= pr.qtyMax;
+      d.max.disabled = q >= pr.qtyMax;
+    } else {
+      d.qty.textContent = pr.price ? `${pr.price} coin` : '';
+    }
+    this.setLED(total || pr.led);
   }
 
   // Waiting for a board click; STAY is the only console answer.
@@ -263,20 +334,22 @@ export class SpireConsole {
   cancelPending() {
     this.pending = null;
     this.enable([]);
+    this.hideDeal();
   }
 
   async press(k) {
     if (!this.enabled.has(k) || this.busy) return;
     audio.play('key');
-    const el = this.keyEls[k];
-    el.classList.add('pressed');
-    setTimeout(() => el.classList.remove('pressed'), 140);
+    const el = this.keyEls[k] || (k === 'haggle' ? this.deal.haggle : null);
+    el?.classList.add('pressed');
+    setTimeout(() => el?.classList.remove('pressed'), 140);
     if (k === 'ledger') return this.showLedger();
     if (k === 'repeat') return this.repeat();
     const p = this.pending;
     if (!p || !p.keys.has(k)) return;
     this.pending = null;
     this.enable([]);
+    this.hideDeal();
     p.resolve(k);
   }
 
@@ -289,6 +362,7 @@ export class SpireConsole {
       this.busy = false;
       if (snap) this.render(snap);
       if (this.pending) this.enable(keys);
+      this.updateDeal();
     }
   }
 
@@ -396,7 +470,12 @@ export class SpireConsole {
       if (this.pending?.hold) { this.press('next'); return true; }
       if (this.skipper) { this.skip(); return true; }
     }
-    const map = { y: 'yes', n: 'no', x: 'next', arrowright: 'next', f: 'fight', l: 'flee', s: 'stay', i: 'ledger', r: 'repeat', e: 'end' };
+    if (this.dealPrompt) {
+      if (['+', '=', 'arrowup'].includes(k)) return this.setQty(1);
+      if (['-', '_', 'arrowdown'].includes(k)) return this.setQty(-1);
+      if (k === 'm') return this.setQty(Infinity);
+    }
+    const map = { y: 'yes', n: 'no', x: 'next', arrowright: 'next', f: 'fight', l: 'flee', s: 'stay', i: 'ledger', r: 'repeat', e: 'end', h: 'haggle' };
     const key = map[k];
     if (key && this.enabled.has(key)) { this.press(key); return true; }
     return false;

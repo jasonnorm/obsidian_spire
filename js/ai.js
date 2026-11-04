@@ -233,15 +233,24 @@ function shopDecision(game, p, prompt) {
   const up = game.upkeep(p);
   const provWant = Math.min(60, up * 15);
   const provBudget = Math.max(0, Math.ceil((provWant - p.provisions) / 5)) * (item.kind === 'provisions' ? price : 4);
-  let buy = false;
-  if (item.kind === 'provisions') buy = p.provisions < provWant && p.coin >= price;
-  else if (item.kind === 'company') buy = p.company < targetCompany(game, p) && p.coin - price >= provBudget + 1;
+  // How many to buy in one go.
+  let n = 0;
+  if (!prompt.options.includes('yes')) n = 0;
+  else if (item.kind === 'provisions') n = Math.min(Math.ceil((provWant - p.provisions) / 5), Math.floor(p.coin / price));
+  else if (item.kind === 'company') n = Math.min(targetCompany(game, p) - p.company, Math.floor((p.coin - provBudget - 1) / price));
   else if (item.kind === 'relic' && !p.relics[item.relic]) {
     const pr = relicPriority(game, p, item.relic);
     const spare = p.coin - price - provBudget;
-    buy = (pr >= 3 && spare >= 4) || (pr === 2 && spare >= 12) || (pr === 1 && spare >= 25);
+    n = (pr >= 3 && spare >= 4) || (pr === 2 && spare >= 12) || (pr === 1 && spare >= 25) ? 1 : 0;
   }
-  if (buy && p.coin >= price) { p._shop.nexts = 0; return 'yes'; }
+  n = Math.min(n, prompt.qtyMax || 1);
+  if (n >= 1) {
+    // Worth a try when the bill is big enough to matter.
+    if (prompt.options.includes('haggle') && prompt.haggles === 0 && n * price >= 6 && game.rand() < 0.3 + 0.3 * p.skill) return 'haggle';
+    p._shop.nexts = 0;
+    prompt.qty = n;
+    return 'yes';
+  }
   p._shop.nexts++;
   if (p._shop.nexts > 6) return 'end';
   return 'next';
@@ -269,9 +278,13 @@ export function decide(game, p, prompt) {
       const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade);
       return l > 2.5 && p.coin >= prompt.price + 4 ? 'yes' : 'no';
     }
-    case 'offer':
-      if (prompt.what === 'company') return p.coin >= prompt.price + 4 && p.company < targetCompany(game, p) + 4 ? 'yes' : 'no';
-      return relicPriority(game, p, prompt.relic) >= 2 && p.coin >= prompt.price + 8 ? 'yes' : 'no';
+    case 'offer': {
+      const want = prompt.what === 'company'
+        ? p.coin >= prompt.price + 4 && p.company < targetCompany(game, p) + 4
+        : relicPriority(game, p, prompt.relic) >= 2 && p.coin >= prompt.price + 8;
+      if (want && prompt.options.includes('haggle') && prompt.haggles === 0 && game.rand() < 0.45) return 'haggle';
+      return want ? 'yes' : 'no';
+    }
     case 'battle': {
       const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade, prompt.foe);
       if (prompt.foeLeft <= 2 && p.company >= 3) return 'fight';
@@ -290,7 +303,9 @@ export function decide(game, p, prompt) {
       // The map makes the wild way free; otherwise pay when the purse allows,
       // fight a weak garrison for its toll chest, and go round when broke.
       if (p.relics.map) return 'no';
-      if (prompt.canPay && p.coin >= prompt.toll + 4) return 'yes';
+      if (prompt.canPay && p.coin >= prompt.toll + 4) {
+        return prompt.options.includes('haggle') && prompt.haggles === 0 && game.rand() < 0.4 ? 'haggle' : 'yes';
+      }
       const l = expectedLoss(p.company, prompt.foeLeft, p.relics.blade, 'marchers');
       if (l !== Infinity && l <= 2 && p.company - l >= 6) return 'fight';
       return prompt.canPay && p.company < 8 ? 'yes' : 'no';
